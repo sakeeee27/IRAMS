@@ -1,0 +1,5 @@
+# Block .env file from browser access
+<Files ".env">
+    Order allow,deny
+    Deny from all
+</Files>
