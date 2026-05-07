@@ -1,43 +1,37 @@
 <?php
 include 'db.php';
+include 'includes/functions.php';
 
-$rfid = $_POST['rfid_uid'];
+header('Content-Type: application/json');
 
-$user = $conn->query("
-SELECT users.*, departments.name AS department, departments.logo
-FROM users
-LEFT JOIN departments ON users.department_id = departments.id
-WHERE users.rfid_uid='$rfid'
-");
-
-if ($user->num_rows == 0) {
-    echo json_encode(["status"=>"error","message"=>"RFID not registered"]);
+$rfid = trim($_POST['rfid_uid'] ?? '');
+if(empty($rfid)){
+    echo json_encode(["status" => "error", "message" => "No RFID provided"]);
     exit;
 }
 
-$userData = $user->fetch_assoc();
-$user_id = $userData['id'];
-
-// Toggle IN/OUT
-$last = $conn->query("SELECT * FROM attendance 
-WHERE user_id='$user_id' ORDER BY time DESC LIMIT 1");
-
-$status = "IN";
-if ($last->num_rows > 0) {
-    $lastData = $last->fetch_assoc();
-    $status = ($lastData['status'] == 'IN') ? 'OUT' : 'IN';
+// Get user — prepared statement
+$user = get_user_by_rfid($conn, $rfid);
+if(!$user){
+    echo json_encode(["status" => "error", "message" => "RFID not registered"]);
+    exit;
 }
 
-$conn->query("INSERT INTO attendance (user_id, status) 
-VALUES ('$user_id','$status')");
+// Toggle IN/OUT — prepared statement
+$last   = get_last_attendance($conn, $user['id']);
+$status = ($last && $last['status'] === 'IN') ? 'OUT' : 'IN';
+
+// Insert attendance — prepared statement
+insert_attendance($conn, $user['id'], $status);
 
 echo json_encode([
-    "status"=>"success",
-    "name"=>$userData['name'],
-    "position"=>$userData['position'],
-    "department"=>$userData['department'],
-    "photo"=>$userData['photo'],
-    "logo"=>$userData['logo'],
-    "log"=>$status
+    "status"     => "success",
+    "user_id"    => $user['id'],
+    "name"       => $user['name'],
+    "position"   => $user['position'],
+    "department" => $user['department'],
+    "photo"      => $user['photo'],
+    "logo"       => $user['logo'],
+    "log"        => $status
 ]);
 ?>
