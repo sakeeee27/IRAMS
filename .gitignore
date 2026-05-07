@@ -1,0 +1,10 @@
+# Ignore sensitive files
+db.php
+uploads/
+*.sql
+*.log
+.env
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
