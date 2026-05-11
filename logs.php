@@ -1,16 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-  
-    <title>IRAMS — Attendance Logs</title>
-    
-    <!-- Favicon -->
-    <link rel="icon" type="image/png" href="irams.png">
-    <link rel="shortcut icon" href="favicon.ico">
-
-    <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<?php
+$page_title = "Attendance Logs";
+$page_type  = "public";
+$extra_css  = <<<'PAGECSS'
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             font-family: Arial, sans-serif;
@@ -229,9 +221,9 @@
             border-top: 1px solid #0f172a;
             text-align: right;
         }
-    </style>
-</head>
-<body>
+PAGECSS;
+include 'includes/header.php';
+?>
 
 <!-- PAGE HEADER -->
 <div class="page-header">
@@ -412,5 +404,4 @@ setInterval(loadLogs, 5000);
 loadLogs();
 </script>
 
-</body>
-</html>
+<?php include 'includes/footer.php'; ?>

@@ -85,18 +85,10 @@ $total_att   = $conn->query("SELECT COUNT(*) c FROM attendance")->fetch_assoc()[
 
 $page = $_GET['page'] ?? 'dashboard';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>IRAMS - Admin Panel</title>
-
-<link rel="icon" type="image/png" href="irams.png">
-<link rel="shortcut icon" href="favicon.ico">
-
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"
-      onerror="this.href='bootstrap/bootstrap.min.css'">
-<style>
+<?php
+$page_title = "Admin Panel";
+$page_type  = "admin";
+$extra_css  = <<<'ADMINCSS'
     /* ══ CSS VARIABLES — DARK (default) ══ */
     :root {
         --bg:        #0f172a;
@@ -110,7 +102,7 @@ $page = $_GET['page'] ?? 'dashboard';
         --text-td:   #cbd5e1;
         --nav-hover: #0f172a;
         --input-bg:  #0f172a;
-        --row-hover: rgba(56,189,248,0.08);
+        --row-hover: rgba(255,255,255,0.02);
         --shadow:    0 4px 24px rgba(0,0,0,0.4);
     }
 
@@ -333,7 +325,7 @@ $page = $_GET['page'] ?? 'dashboard';
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: 14px;
-        overflow: visible;
+        overflow: hidden;
         margin-bottom: 24px;
         box-shadow: var(--shadow);
         transition: background 0.3s, border-color 0.3s;
@@ -375,10 +367,7 @@ $page = $_GET['page'] ?? 'dashboard';
         vertical-align: middle;
     }
 
-    .tbl tbody tr:hover {
-        background: var(--row-hover);
-        box-shadow: inset 0 0 0 1px rgba(56,189,248,0.3);
-    }
+    .tbl tbody tr:hover { background: var(--row-hover); }
 
     .emp-photo {
         width: 38px; height: 38px;
@@ -461,8 +450,6 @@ $page = $_GET['page'] ?? 'dashboard';
     }
 
     /* ── EMPLOYEE HOVER POPUP ── */
-
-
     .emp-popup {
         position: fixed;
         z-index: 9999;
@@ -485,12 +472,14 @@ $page = $_GET['page'] ?? 'dashboard';
     }
 
     .emp-popup-photo {
-        width: 100px;
-        height: 100px;
+        width: 110px;
+        height: 110px;
         border-radius: 12px;
         object-fit: cover;
         object-position: top;
-        border: 2px solid rgba(255,255,255,0.1);
+        border: 3px solid var(--border);
+        margin: 0 auto 12px;
+        display: block;
     }
 
     .emp-popup-name {
@@ -547,9 +536,12 @@ $page = $_GET['page'] ?? 'dashboard';
         border: 1px solid rgba(56,189,248,0.25);
         margin-top: 4px;
     }
-</style>
-</head>
+ADMINCSS;
+include 'includes/header.php';
+?>
+
 <body>
+
 
 <!-- ══════════════ SIDEBAR ══════════════ -->
 <div class="sidebar">
@@ -694,7 +686,7 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
             <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">+ Register Employee</button>
         </div>
     </div>
-    <div style="overflow: visible;">
+    <div class="table-responsive">
     <table class="tbl">
         <thead>
         <tr>
@@ -707,7 +699,9 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
         <?php
         $res = $conn->query("SELECT users.*, departments.name AS dept_name FROM users LEFT JOIN departments ON users.department_id=departments.id ORDER BY users.surname, users.first_name");
         while($row = $res->fetch_assoc()):
-            $empJson = htmlspecialchars(json_encode([
+        ?>
+        <tr class="emp-row"
+            onmouseenter="showPopup(event, <?= json_encode([
                 'name'         => $row['name'],
                 'first_name'   => $row['first_name'] ?? '',
                 'surname'      => $row['surname'] ?? '',
@@ -716,14 +710,10 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
                 'employee_id'  => $row['employee_id'] ?? '—',
                 'biometric_id' => $row['biometric_id'] ?? '—',
                 'rfid_uid'     => $row['rfid_uid'] ?? '—',
-                'photo'        => !empty($row['photo']) ? $row['photo'] : 'default.png',
-            ], JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES);
-        ?>
-        <tr class="emp-row"
-            onmouseenter="showPopup(event, JSON.parse(this.dataset.emp))"
+                'photo'        => $row['photo'] ?? 'default.png',
+            ]) ?>)"
             onmouseleave="hidePopup()"
-            onmousemove="movePopup(event)"
-            data-emp="<?= $empJson ?>">
+            onmousemove="movePopup(event)">
             <td><img src="<?= htmlspecialchars($row['photo']) ?>" class="emp-photo" onerror="this.src='default.png'"></td>
             <td><?= htmlspecialchars($row['employee_id'] ?? '—') ?></td>
             <td><?= htmlspecialchars($row['biometric_id'] ?? '—') ?></td>
@@ -864,15 +854,19 @@ $s_today = $conn->query("SELECT COUNT(*) c FROM attendance WHERE DATE(time)='$to
 </div></div></div>
 <?php endif; ?>
 
+<!-- ══ EMPLOYEE HOVER POPUP ══ -->
+<div class="emp-popup" id="empPopup">
+    <img class="emp-popup-photo" id="popupPhoto" src="default.png" onerror="this.src='default.png'">
+    <div class="emp-popup-name"    id="popupName"></div>
+    <div class="emp-popup-position" id="popupPosition"></div>
+    <div class="emp-popup-dept"    id="popupDept"></div>
+    <div class="emp-popup-divider"></div>
+    <div class="emp-popup-row"><span>Employee ID</span><span id="popupEmpId"></span></div>
+    <div class="emp-popup-row"><span>Biometric ID</span><span id="popupBioId"></span></div>
+    <div class="emp-popup-row"><span>RFID</span><span id="popupRfid"></span></div>
+</div>
+
 <!-- ══ JS ══ -->
-<script>
-(function(){
-    var s=document.createElement('script');
-    s.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js';
-    s.onerror=function(){ var l=document.createElement('script'); l.src='bootstrap/bootstrap.bundle.min.js'; document.head.appendChild(l); };
-    document.head.appendChild(s);
-})();
-</script>
 <script>
 // ── Edit user ──
 function editUser(u){
@@ -901,17 +895,6 @@ if(window.location.search.includes('msg=')){
     window.history.replaceState(null,'', u.toString());
 }
 
-// ── Sync popup colors to current theme ──
-function syncPopupTheme(){
-    const el = document.getElementById('empPopup');
-    if(!el) return;
-    const light = document.documentElement.classList.contains('light');
-    el.style.background = light ? '#ffffff' : '#1e293b';
-    el.style.border      = light ? '1px solid #e2e8f0' : '1px solid #334155';
-    el.style.color       = light ? '#0f172a' : '#e2e8f0';
-    el.style.boxShadow   = light ? '0 20px 60px rgba(0,0,0,0.12)' : '0 20px 60px rgba(0,0,0,0.5)';
-}
-
 // ── THEME TOGGLE ──
 (function(){
     const html    = document.documentElement;
@@ -937,7 +920,6 @@ function syncPopupTheme(){
         if(logo) logo.src = "iramswhite.png";
     }
     localStorage.setItem("rfid_theme", theme);
-    syncPopupTheme();
 }
 
     applyTheme(saved);
@@ -960,75 +942,30 @@ if(searchBox){
 }
 
 // ── EMPLOYEE HOVER POPUP ──
-// Created inside DOMContentLoaded so body is guaranteed to exist
-document.addEventListener('DOMContentLoaded', function(){
-    const el = document.createElement('div');
-    el.id = 'empPopup';
-    Object.assign(el.style, {
-        position:'fixed', zIndex:'99999', width:'240px',
-        borderRadius:'16px', padding:'18px',
-        pointerEvents:'none', opacity:'0',
-        transform:'scale(0.95) translateY(6px)',
-        transition:'opacity 0.15s ease, transform 0.15s ease',
-        textAlign:'center', top:'0', left:'0',
-        background:'#1e293b', border:'1px solid #334155',
-        color:'#e2e8f0', boxShadow:'0 20px 60px rgba(0,0,0,0.5)'
-    });
-    el.innerHTML = `
-        <img id="popupPhoto" src="default.png"
-             style="width:100px;height:100px;border-radius:10px;object-fit:cover;object-position:top;display:block;margin:0 auto 10px;border:2px solid rgba(255,255,255,0.1);"
-             onerror="this.src='default.png'">
-        <div id="popupName"     style="font-size:14px;font-weight:bold;margin-bottom:3px;"></div>
-        <div id="popupPosition" style="font-size:12px;margin-bottom:8px;opacity:0.7;"></div>
-        <div id="popupDept"     style="display:inline-block;font-size:11px;padding:2px 10px;border-radius:999px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);margin-bottom:10px;"></div>
-        <div style="height:1px;background:rgba(255,255,255,0.1);margin:10px 0;"></div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;"><span style="opacity:0.55;">Employee ID</span><span id="popupEmpId" style="font-weight:bold;"></span></div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;"><span style="opacity:0.55;">Biometric ID</span><span id="popupBioId" style="font-weight:bold;"></span></div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;"><span style="opacity:0.55;">RFID</span><span id="popupRfid" style="font-weight:bold;"></span></div>
-    `;
-    document.body.appendChild(el);
-    // Apply correct theme immediately on creation
-    syncPopupTheme();
-});
-
+const popup = document.getElementById('empPopup');
 let popupTimeout;
 
 function showPopup(e, emp){
-    const popup = document.getElementById('empPopup');
-    if(!popup) return;
-
     clearTimeout(popupTimeout);
-
-    // ✅ FIX PHOTO PATH
-    let photo = emp.photo && emp.photo !== '' ? emp.photo : 'default.png';
-
-    document.getElementById('popupPhoto').src = photo;
-    document.getElementById('popupName').innerText = emp.name || '—';
-    document.getElementById('popupPosition').innerText = emp.position || '—';
-    document.getElementById('popupDept').innerText = emp.dept_name || '—';
-    document.getElementById('popupEmpId').innerText = emp.employee_id || '—';
-    document.getElementById('popupBioId').innerText = emp.biometric_id || '—';
-    document.getElementById('popupRfid').innerText = emp.rfid_uid || '—';
-
+    document.getElementById('popupPhoto').src       = emp.photo || 'default.png';
+    document.getElementById('popupName').innerText      = emp.name || '—';
+    document.getElementById('popupPosition').innerText  = emp.position || '—';
+    document.getElementById('popupDept').innerText      = emp.dept_name || '—';
+    document.getElementById('popupEmpId').innerText     = emp.employee_id || '—';
+    document.getElementById('popupBioId').innerText     = emp.biometric_id || '—';
+    document.getElementById('popupRfid').innerText      = emp.rfid_uid || '—';
     movePopup(e);
-
-    popup.style.opacity = '1';
-    popup.style.transform = 'scale(1)';
+    popup.classList.add('visible');
 }
 
 function hidePopup(){
-    const popup = document.getElementById('empPopup');
-    if(!popup) return;
-    popupTimeout = setTimeout(() => {
-        popup.style.opacity   = '0';
-        popup.style.transform = 'scale(0.95) translateY(6px)';
-    }, 100);
+    popupTimeout = setTimeout(() => popup.classList.remove('visible'), 120);
 }
 
 function movePopup(e){
-    const popup = document.getElementById('empPopup');
-    if(!popup) return;
-    const margin = 16, pw = 250, ph = 330;
+    const margin = 18;
+    const pw = 240;
+    const ph = 310;
     let x = e.clientX + margin;
     let y = e.clientY + margin;
     if(x + pw > window.innerWidth)  x = e.clientX - pw - margin;
@@ -1181,5 +1118,4 @@ loadAttendance();
 setInterval(loadAttendance, 5000);
 </script>
 
-</body>
-</html>
+<?php include 'includes/footer.php'; ?>

@@ -1,15 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>INSPI RFID ATTENDANCE SYSTEM</title>
-
-     <!-- Favicon -->
-    <link rel="icon" type="image/png" href="irams.png">
-    <link rel="shortcut icon" href="favicon.ico">
-
-    <style>
-        /* ══ CSS VARIABLES — DARK (default) ══ */
+<?php
+$page_title = "Live Dashboard";
+$page_type  = "public";
+$extra_css  = <<<'PAGECSS'
+/* ══ CSS VARIABLES — DARK (default) ══ */
         :root {
             --bg:                #5c6983;
             --surface:           #1e293b;
@@ -427,18 +420,14 @@
         }
         .activity-badge.badge-in  { background: rgba(34,197,94,0.15); color: #22c55e; }
         .activity-badge.badge-out { background: rgba(239,68,68,0.15);  color: #ef4444; }
-    </style>
-</head>
-<body>
+PAGECSS;
+include 'includes/header.php';
+?>
 
 <!-- Hidden input only active on the host with the RFID scanner plugged in -->
 <input type="text" id="rfid" autofocus autocomplete="off">
 
-<!-- THEME TOGGLE -->
-<div class="theme-btn" onclick="toggleTheme()">
-    <label class="toggle-switch">
-        <input type="checkbox" id="themeToggle">
-        <div class="toggle-track"></div>
+<!-- Theme toggle rendered by includes/header.php -->
         <div class="toggle-thumb"></div>
     </label>
     <span class="theme-btn-label" id="themeLabel">&#127769; Dark</span>
@@ -658,5 +647,4 @@ function toggleTheme(){
 applyTheme(localStorage.getItem("rfid_theme") || "dark");
 </script>
 
-</body>
-</html>
+<?php include 'includes/footer.php'; ?>
