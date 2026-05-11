@@ -26,6 +26,8 @@ $result = $conn->query("
         users.id,
         users.employee_id,
         users.name,
+        users.surname,
+        users.first_name,
         users.position,
         users.photo,
         departments.name AS department,
@@ -36,9 +38,15 @@ $result = $conn->query("
     JOIN users ON users.id = attendance.user_id
     LEFT JOIN departments ON users.department_id = departments.id
     WHERE $where_sql
-    GROUP BY users.id, users.employee_id, users.name, users.position, users.photo, departments.name
+    GROUP BY users.id, users.employee_id, users.name, users.surname, users.first_name,
+             users.position, users.photo, departments.name
     ORDER BY users.surname, users.first_name
 ");
+
+// ── Catch query errors ──
+if(!$result){
+    die("<pre style='color:red;padding:20px'>Query Error: " . $conn->error . "</pre>");
+}
 
 $rows = [];
 $total_hours = 0;
