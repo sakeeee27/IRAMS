@@ -428,10 +428,6 @@ include 'includes/header.php';
 <input type="text" id="rfid" autofocus autocomplete="off">
 
 <!-- Theme toggle rendered by includes/header.php -->
-        <div class="toggle-thumb"></div>
-    </label>
-    <span class="theme-btn-label" id="themeLabel">&#127769; Dark</span>
-</div>
 
 <div class="page-wrapper">
 

@@ -206,10 +206,6 @@ include 'includes/header.php';
 ?>
 
 <!-- Theme toggle rendered by includes/header.php -->
-        <div class="toggle-thumb"></div>
-    </label>
-    <span class="theme-btn-label" id="themeLabel">&#127769; Dark</span>
-</div>
 
 <div class="login-wrap">
 
@@ -221,7 +217,7 @@ include 'includes/header.php';
 
     <div class="login-card">
 
-        <?php if($error): ?>
+        <?php if(!empty($error)): ?>
         <div class="error-box">&#9888; <?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
 

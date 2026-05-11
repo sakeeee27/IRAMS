@@ -186,10 +186,6 @@ include 'includes/header.php';
 ?>
 
 <!-- Theme toggle rendered by includes/header.php -->
-        <div class="toggle-thumb"></div>
-    </label>
-    <span class="theme-btn-label" id="themeLabel">&#127769; Dark</span>
-</div>
 
 <div class="wrap">
 
