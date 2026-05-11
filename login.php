@@ -1,4 +1,45 @@
 <?php
+session_start();
+
+// ── Redirect if already logged in ──
+if(isset($_SESSION['admin_id'])){
+    header("Location: admin.php");
+    exit;
+}
+
+include 'db.php';
+
+$error = '';
+
+// ── Handle login POST ──
+if(isset($_POST['login'])){
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+
+    if(empty($username) || empty($password)){
+        $error = 'Please enter your username and password.';
+    } else {
+        $stmt = $conn->prepare("SELECT id, username, full_name, password FROM admin_users WHERE username = ? LIMIT 1");
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $admin  = $result->fetch_assoc();
+        $stmt->close();
+
+        if($admin && password_verify($password, $admin['password'])){
+            // Correct credentials
+            session_regenerate_id(true);
+            $_SESSION['admin_id']   = $admin['id'];
+            $_SESSION['admin_user'] = $admin['username'];
+            $_SESSION['admin_name'] = $admin['full_name'] ?? $admin['username'];
+            header("Location: admin.php");
+            exit;
+        } else {
+            $error = 'Invalid username or password.';
+        }
+    }
+}
+
 $page_title = "Admin Login";
 $page_type  = "auth";
 $extra_css  = <<<'PAGECSS'

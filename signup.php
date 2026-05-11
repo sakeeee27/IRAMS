@@ -1,4 +1,55 @@
 <?php
+session_start();
+
+// ── Redirect if already logged in ──
+if(isset($_SESSION['admin_id'])){
+    header("Location: admin.php");
+    exit;
+}
+
+include 'db.php';
+
+$error   = '';
+$success = '';
+
+// ── Handle signup POST ──
+if(isset($_POST['signup'])){
+    $full_name = trim($_POST['full_name'] ?? '');
+    $username  = trim($_POST['username']  ?? '');
+    $password  = $_POST['password']         ?? '';
+    $confirm   = $_POST['confirm_password'] ?? '';
+
+    if(empty($full_name) || empty($username) || empty($password) || empty($confirm)){
+        $error = 'All fields are required.';
+    } elseif(strlen($username) < 4){
+        $error = 'Username must be at least 4 characters.';
+    } elseif(!preg_match('/^[a-zA-Z0-9_]+$/', $username)){
+        $error = 'Username may only contain letters, numbers, and underscores.';
+    } elseif(strlen($password) < 6){
+        $error = 'Password must be at least 6 characters.';
+    } elseif($password !== $confirm){
+        $error = 'Passwords do not match.';
+    } else {
+        // Check for duplicate username
+        $chk = $conn->prepare("SELECT id FROM admin_users WHERE username = ? LIMIT 1");
+        $chk->bind_param("s", $username);
+        $chk->execute();
+        $chk->store_result();
+
+        if($chk->num_rows > 0){
+            $error = 'Username already taken. Please choose another.';
+        } else {
+            $hashed = password_hash($password, PASSWORD_DEFAULT);
+            $ins = $conn->prepare("INSERT INTO admins (username, full_name, password) VALUES (?, ?, ?)");
+            $ins->bind_param("sss", $username, $full_name, $hashed);
+            $ins->execute();
+            $ins->close();
+            $success = 'Account created successfully!';
+        }
+        $chk->close();
+    }
+}
+
 $page_title = "Sign Up";
 $page_type  = "auth";
 $extra_css  = <<<'PAGECSS'
