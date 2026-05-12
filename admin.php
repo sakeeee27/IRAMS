@@ -76,6 +76,48 @@ if(isset($_POST['update'])){
     header("Location: admin.php?page=employees&msg=updated"); exit;
 }
 
+// ── ADD ADMIN USER ──
+if(isset($_POST['add_admin'])){
+    $au_user = trim($_POST['au_username'] ?? '');
+    $au_name = trim($_POST['au_fullname'] ?? '');
+    $au_pass = $_POST['au_password'] ?? '';
+    if($au_user && $au_name && strlen($au_pass) >= 6){
+        $chk = $conn->prepare("SELECT id FROM admin_users WHERE username=? LIMIT 1");
+        $chk->bind_param("s", $au_user); $chk->execute(); $chk->store_result();
+        if($chk->num_rows > 0){ $chk->close();
+            header("Location: admin.php?page=admin_users&msg=au_dup"); exit;
+        }
+        $chk->close();
+        $hash = password_hash($au_pass, PASSWORD_DEFAULT);
+        $ins  = $conn->prepare("INSERT INTO admin_users (username, full_name, password) VALUES (?,?,?)");
+        $ins->bind_param("sss", $au_user, $au_name, $hash); $ins->execute(); $ins->close();
+        header("Location: admin.php?page=admin_users&msg=au_added"); exit;
+    }
+    header("Location: admin.php?page=admin_users&msg=au_err"); exit;
+}
+
+// ── DELETE ADMIN USER ──
+if(isset($_GET['delete_admin'])){
+    $del_id = (int)$_GET['delete_admin'];
+    if($del_id > 0 && $del_id !== (int)$_SESSION['admin_id']){
+        $stmt = $conn->prepare("DELETE FROM admin_users WHERE id=?");
+        $stmt->bind_param("i", $del_id); $stmt->execute(); $stmt->close();
+    }
+    header("Location: admin.php?page=admin_users&msg=au_deleted"); exit;
+}
+
+// ── RESET ADMIN PASSWORD ──
+if(isset($_POST['reset_admin_pw'])){
+    $rp_id   = (int)($_POST['rp_id'] ?? 0);
+    $rp_pass = $_POST['rp_password'] ?? '';
+    if($rp_id > 0 && strlen($rp_pass) >= 6){
+        $hash = password_hash($rp_pass, PASSWORD_DEFAULT);
+        $stmt = $conn->prepare("UPDATE admin_users SET password=? WHERE id=?");
+        $stmt->bind_param("si", $hash, $rp_id); $stmt->execute(); $stmt->close();
+    }
+    header("Location: admin.php?page=admin_users&msg=au_reset"); exit;
+}
+
 // ── STATS FOR DASHBOARD ──
 $total_emp   = $conn->query("SELECT COUNT(*) c FROM users")->fetch_assoc()['c'];
 $total_dept  = $conn->query("SELECT COUNT(*) c FROM departments")->fetch_assoc()['c'];
@@ -536,6 +578,8 @@ $extra_css  = <<<'ADMINCSS'
         border: 1px solid rgba(56,189,248,0.25);
         margin-top: 4px;
     }
+    /* ── Hide the fixed header.php theme toggle on admin pages ── */
+    .theme-btn { display: none !important; }
 ADMINCSS;
 include 'includes/header.php';
 ?>
@@ -556,6 +600,9 @@ include 'includes/header.php';
         <a href="admin.php?page=dashboard"   class="nav-item <?= $page==='dashboard'   ? 'active':'' ?>"><span class="nav-icon">&#9741;</span>  Dashboard</a>
         <a href="admin.php?page=employees"   class="nav-item <?= $page==='employees'   ? 'active':'' ?>"><span class="nav-icon">&#128100;</span> Employees</a>
         <a href="admin.php?page=attendance"  class="nav-item <?= $page==='attendance'  ? 'active':'' ?>"><span class="nav-icon">&#128203;</span> Attendance Log</a>
+        <a href="admin.php?page=admin_users" class="nav-item <?= $page==='admin_users' ? 'active':'' ?>"><span class="nav-icon">&#128737;</span> Admin Users</a>
+        <a href="summary_report.php"          class="nav-item"><span class="nav-icon">&#128196;</span> Summary Report</a>
+        <a href="change_password.php"         class="nav-item"><span class="nav-icon">&#128274;</span> Change Password</a>
 
         <div class="nav-label" style="margin-top:8px;">System</div>
         <a href="index.php" target="_blank"  class="nav-item"><span class="nav-icon">&#127760;</span> Live Dashboard</a>
@@ -591,6 +638,11 @@ $alerts = [
     'updated'    => ['info',    '&#10003; Employee updated successfully.'],
     'deleted'    => ['warning', '&#10003; Employee deleted.'],
     'duplicate'  => ['danger',  '&#9888; RFID already registered.'],
+    'au_added'   => ['success', '&#10003; Admin account created successfully.'],
+    'au_deleted' => ['warning', '&#10003; Admin account deleted.'],
+    'au_reset'   => ['info',    '&#10003; Password has been reset.'],
+    'au_dup'     => ['danger',  '&#9888; Username already exists.'],
+    'au_err'     => ['danger',  '&#9888; Please fill all fields (min. 6 char password).'],
 ];
 if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
     [$type, $text] = $alerts[$_GET['msg']];
@@ -701,19 +753,15 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
         while($row = $res->fetch_assoc()):
         ?>
         <tr class="emp-row"
-            onmouseenter="showPopup(event, <?= json_encode([
-                'name'         => $row['name'],
-                'first_name'   => $row['first_name'] ?? '',
-                'surname'      => $row['surname'] ?? '',
-                'position'     => $row['position'] ?? '—',
-                'dept_name'    => $row['dept_name'] ?? '—',
-                'employee_id'  => $row['employee_id'] ?? '—',
-                'biometric_id' => $row['biometric_id'] ?? '—',
-                'rfid_uid'     => $row['rfid_uid'] ?? '—',
-                'photo'        => $row['photo'] ?? 'default.png',
-            ]) ?>)"
-            onmouseleave="hidePopup()"
-            onmousemove="movePopup(event)">
+            data-emp='<?= json_encode([
+                "name"         => $row["name"],
+                "position"     => $row["position"] ?? "",
+                "dept_name"    => $row["dept_name"] ?? "",
+                "employee_id"  => $row["employee_id"] ?? "",
+                "biometric_id" => $row["biometric_id"] ?? "",
+                "rfid_uid"     => $row["rfid_uid"] ?? "",
+                "photo"        => $row["photo"] ?? "default.png",
+            ], JSON_HEX_APOS) ?>'>
             <td><img src="<?= htmlspecialchars($row['photo']) ?>" class="emp-photo" onerror="this.src='default.png'"></td>
             <td><?= htmlspecialchars($row['employee_id'] ?? '—') ?></td>
             <td><?= htmlspecialchars($row['biometric_id'] ?? '—') ?></td>
@@ -778,6 +826,117 @@ $s_today = $conn->query("SELECT COUNT(*) c FROM attendance WHERE DATE(time)='$to
         <tbody id="attBody"></tbody>
     </table>
     <div style="padding:10px 16px;font-size:12px;color:#475569;border-top:1px solid #0f172a;" id="attCount"></div>
+    </div>
+</div>
+<?php elseif($page === 'admin_users'): ?>
+<!-- ══════════════════════════════════════
+     PAGE: ADMIN USERS
+══════════════════════════════════════ -->
+<div class="page-header">
+    <h1>&#128737; Admin Users</h1>
+    <p>Manage accounts with access to this admin panel.</p>
+</div>
+
+<?php
+$au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c'];
+?>
+<div class="stat-grid" style="grid-template-columns:repeat(2,1fr);max-width:500px;margin-bottom:24px;">
+    <div class="stat-card">
+        <div class="stat-icon">&#128737;</div>
+        <div class="stat-val"><?= $au_total ?></div>
+        <div class="stat-lbl">Total Admins</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">&#128100;</div>
+        <div class="stat-val" style="color:#22c55e;">1</div>
+        <div class="stat-lbl">Logged In Now</div>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-header">
+        <span class="panel-title">&#128737; Admin Accounts</span>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+            <input type="text" id="auSearch" class="ctrl-input" placeholder="&#128269; Search..." style="min-width:200px;">
+            <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addAdminModal">+ Add Admin</button>
+        </div>
+    </div>
+    <div class="table-responsive">
+    <table class="tbl" id="auTable">
+        <thead>
+        <tr>
+            <th>#</th>
+            <th>Admin</th>
+            <th>Username</th>
+            <th>Created</th>
+            <th>Role</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        <?php
+        $au_res = $conn->query("SELECT id, username, full_name, created_at FROM admin_users ORDER BY created_at ASC");
+        $au_num = 0;
+        while($au = $au_res->fetch_assoc()):
+            $au_num++;
+            $is_me    = ((int)$au['id'] === (int)$_SESSION['admin_id']);
+            $initial  = strtoupper(substr($au['full_name'] ?? $au['username'], 0, 1));
+            $created  = $au['created_at'] ? date('M j, Y', strtotime($au['created_at'])) : '—';
+        ?>
+        <tr>
+            <td style="color:var(--text-muted);width:40px;"><?= $au_num ?></td>
+            <td>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div style="width:38px;height:38px;border-radius:50%;
+                         background:linear-gradient(135deg,#1e40af,#0ea5e9);
+                         display:flex;align-items:center;justify-content:center;
+                         font-size:15px;font-weight:bold;color:white;flex-shrink:0;">
+                        <?= htmlspecialchars($initial) ?>
+                    </div>
+                    <div>
+                        <div style="font-weight:bold;color:var(--text-strong);font-size:13px;">
+                            <?= htmlspecialchars($au['full_name'] ?? '—') ?>
+                            <?php if($is_me): ?>
+                            <span style="font-size:10px;padding:2px 7px;border-radius:999px;
+                                background:rgba(56,189,248,0.15);color:#38bdf8;
+                                border:1px solid rgba(56,189,248,0.3);margin-left:4px;">You</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </td>
+            <td style="font-family:monospace;font-size:13px;color:#38bdf8;">
+                @<?= htmlspecialchars($au['username']) ?>
+            </td>
+            <td style="font-size:12px;color:var(--text-muted);"><?= $created ?></td>
+            <td>
+                <span style="font-size:11px;padding:3px 10px;border-radius:999px;
+                    background:rgba(99,102,241,0.15);color:#818cf8;
+                    border:1px solid rgba(99,102,241,0.25);">Administrator</span>
+            </td>
+            <td>
+                <button class="btn btn-warning btn-sm me-1" style="font-size:11px;"
+                    onclick="openResetPw(<?= $au['id'] ?>, <?= json_encode($au['full_name'] ?? $au['username']) ?>)">
+                    &#128274; Reset PW
+                </button>
+                <?php if(!$is_me): ?>
+                <a href="admin.php?page=admin_users&delete_admin=<?= $au['id'] ?>"
+                   class="btn btn-danger btn-sm" style="font-size:11px;"
+                   onclick="return confirm('Delete <?= htmlspecialchars(addslashes($au['full_name'] ?? $au['username'])) ?>? This cannot be undone.')">
+                    &#128465; Delete
+                </a>
+                <?php else: ?>
+                <button class="btn btn-secondary btn-sm" style="font-size:11px;" disabled
+                    title="You cannot delete your own account">&#128465; Delete</button>
+                <?php endif; ?>
+            </td>
+        </tr>
+        <?php endwhile; ?>
+        </tbody>
+    </table>
+    </div>
+    <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);">
+        <?= $au_total ?> admin account(s) registered
     </div>
 </div>
 <?php endif; ?>
@@ -853,6 +1012,77 @@ $s_today = $conn->query("SELECT COUNT(*) c FROM attendance WHERE DATE(time)='$to
 </form>
 </div></div></div>
 <?php endif; ?>
+
+<!-- ══ ADD ADMIN MODAL ══ -->
+<div class="modal fade" id="addAdminModal">
+<div class="modal-dialog">
+<div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
+<form method="POST">
+<div class="modal-header" style="border-color:#334155;">
+    <h5 class="modal-title">&#128737; Add Admin Account</h5>
+    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+<div class="row g-3">
+    <div class="col-12">
+        <div class="form-floating">
+            <input class="form-control bg-dark text-white border-secondary" name="au_fullname" id="au_fullname" placeholder="Full Name" required>
+            <label>Full Name *</label>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="form-floating">
+            <input class="form-control bg-dark text-white border-secondary" name="au_username" id="au_username" placeholder="Username" autocomplete="off" required>
+            <label>Username *</label>
+        </div>
+        <small class="text-secondary" style="font-size:11px;">Letters, numbers, and underscores only.</small>
+    </div>
+    <div class="col-12">
+        <div class="form-floating">
+            <input type="password" class="form-control bg-dark text-white border-secondary" name="au_password" id="au_password" placeholder="Password" required minlength="6">
+            <label>Password * (min. 6 characters)</label>
+        </div>
+        <div style="height:4px;background:#334155;border-radius:2px;margin-top:8px;overflow:hidden;">
+            <div id="auStrengthBar" style="height:100%;width:0%;border-radius:2px;transition:width 0.3s,background 0.3s;"></div>
+        </div>
+        <small id="auStrengthLabel" style="font-size:11px;display:block;margin-top:4px;"></small>
+    </div>
+</div>
+</div>
+<div class="modal-footer" style="border-color:#334155;">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button class="btn btn-success" name="add_admin">&#10133; Create Account</button>
+</div>
+</form>
+</div></div></div>
+
+<!-- ══ RESET PASSWORD MODAL ══ -->
+<div class="modal fade" id="resetPwModal">
+<div class="modal-dialog modal-sm">
+<div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
+<form method="POST">
+<input type="hidden" name="rp_id" id="rp_id">
+<div class="modal-header" style="border-color:#334155;">
+    <h5 class="modal-title">&#128274; Reset Password</h5>
+    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">
+        Resetting password for:<br>
+        <strong id="rp_name" style="color:#f1f5f9;font-size:14px;"></strong>
+    </p>
+    <div class="form-floating">
+        <input type="password" class="form-control bg-dark text-white border-secondary"
+            name="rp_password" id="rp_password" placeholder="New Password" required minlength="6">
+        <label>New Password (min. 6 chars)</label>
+    </div>
+</div>
+<div class="modal-footer" style="border-color:#334155;">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button class="btn btn-warning" name="reset_admin_pw">&#128274; Reset Password</button>
+</div>
+</form>
+</div></div></div>
 
 <!-- ══ EMPLOYEE HOVER POPUP ══ -->
 <div class="emp-popup" id="empPopup">
@@ -941,38 +1171,103 @@ if(searchBox){
     });
 }
 
-// ── EMPLOYEE HOVER POPUP ──
-const popup = document.getElementById('empPopup');
-let popupTimeout;
+// Uses data-emp attribute + event delegation — no inline JS breakage
+(function(){
+    // Create popup div on body
+    const el = document.createElement('div');
+    el.id = 'empPopup';
+    Object.assign(el.style, {
+        position:'fixed', zIndex:'99999', width:'240px',
+        borderRadius:'16px', padding:'18px',
+        pointerEvents:'none', opacity:'0',
+        transform:'scale(0.95) translateY(6px)',
+        transition:'opacity 0.15s ease, transform 0.15s ease',
+        textAlign:'center', top:'0', left:'0',
+        background:'#1e293b', border:'1px solid #334155',
+        color:'#e2e8f0', boxShadow:'0 20px 60px rgba(0,0,0,0.5)'
+    });
+    el.innerHTML =
+        '<img id="popupPhoto" src="default.png" onerror="this.src=\'default.png\'" style="width:100px;height:100px;border-radius:10px;object-fit:cover;object-position:top;display:block;margin:0 auto 10px;border:2px solid rgba(255,255,255,0.1);">' +
+        '<div id="popupName"     style="font-size:14px;font-weight:bold;margin-bottom:3px;"></div>' +
+        '<div id="popupPosition" style="font-size:12px;margin-bottom:6px;opacity:0.7;"></div>' +
+        '<div id="popupDept"     style="display:inline-block;font-size:11px;padding:2px 10px;border-radius:999px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);margin-bottom:10px;"></div>' +
+        '<div style="height:1px;background:rgba(255,255,255,0.1);margin:10px 0;"></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;"><span style="opacity:0.55;">Employee ID</span><span id="popupEmpId" style="font-weight:bold;"></span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;"><span style="opacity:0.55;">Biometric ID</span><span id="popupBioId" style="font-weight:bold;"></span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:11px;"><span style="opacity:0.55;">RFID</span><span id="popupRfid" style="font-weight:bold;"></span></div>';
+    document.body.appendChild(el);
 
-function showPopup(e, emp){
-    clearTimeout(popupTimeout);
-    document.getElementById('popupPhoto').src       = emp.photo || 'default.png';
-    document.getElementById('popupName').innerText      = emp.name || '—';
-    document.getElementById('popupPosition').innerText  = emp.position || '—';
-    document.getElementById('popupDept').innerText      = emp.dept_name || '—';
-    document.getElementById('popupEmpId').innerText     = emp.employee_id || '—';
-    document.getElementById('popupBioId').innerText     = emp.biometric_id || '—';
-    document.getElementById('popupRfid').innerText      = emp.rfid_uid || '—';
-    movePopup(e);
-    popup.classList.add('visible');
-}
+    let popupTimeout;
 
-function hidePopup(){
-    popupTimeout = setTimeout(() => popup.classList.remove('visible'), 120);
-}
+    function syncTheme(){
+        const light = document.documentElement.classList.contains('light');
+        el.style.background = light ? '#ffffff' : '#1e293b';
+        el.style.border      = light ? '1px solid #e2e8f0' : '1px solid #334155';
+        el.style.color       = light ? '#0f172a' : '#e2e8f0';
+        el.style.boxShadow   = light ? '0 20px 60px rgba(0,0,0,0.12)' : '0 20px 60px rgba(0,0,0,0.5)';
+    }
 
-function movePopup(e){
-    const margin = 18;
-    const pw = 240;
-    const ph = 310;
-    let x = e.clientX + margin;
-    let y = e.clientY + margin;
-    if(x + pw > window.innerWidth)  x = e.clientX - pw - margin;
-    if(y + ph > window.innerHeight) y = e.clientY - ph - margin;
-    popup.style.left = x + 'px';
-    popup.style.top  = y + 'px';
-}
+    function show(emp, x, y){
+        clearTimeout(popupTimeout);
+        syncTheme();
+        document.getElementById('popupPhoto').src          = emp.photo || 'default.png';
+        document.getElementById('popupName').innerText     = emp.name || '—';
+        document.getElementById('popupPosition').innerText = emp.position || '—';
+        document.getElementById('popupDept').innerText     = emp.dept_name || '—';
+        document.getElementById('popupEmpId').innerText    = emp.employee_id || '—';
+        document.getElementById('popupBioId').innerText    = emp.biometric_id || '—';
+        document.getElementById('popupRfid').innerText     = emp.rfid_uid || '—';
+        move(x, y);
+        el.style.opacity   = '1';
+        el.style.transform = 'scale(1) translateY(0)';
+    }
+
+    function hide(){
+        popupTimeout = setTimeout(()=>{
+            el.style.opacity   = '0';
+            el.style.transform = 'scale(0.95) translateY(6px)';
+        }, 100);
+    }
+
+    function move(x, y){
+        const margin=16, pw=250, ph=330;
+        let lx = x + margin;
+        let ly = y + margin;
+        if(lx + pw > window.innerWidth)  lx = x - pw - margin;
+        if(ly + ph > window.innerHeight) ly = y - ph - margin;
+        el.style.left = lx + 'px';
+        el.style.top  = ly + 'px';
+    }
+
+    // Event delegation on document — catches all .emp-row rows
+    document.addEventListener('mouseover', function(e){
+        const row = e.target.closest('.emp-row[data-emp]');
+        if(!row) return;
+        try {
+            const emp = JSON.parse(row.dataset.emp);
+            show(emp, e.clientX, e.clientY);
+        } catch(err){ console.error('Popup parse error:', err); }
+    });
+
+    document.addEventListener('mouseout', function(e){
+        const row = e.target.closest('.emp-row[data-emp]');
+        if(!row) return;
+        // Only hide if leaving the row entirely
+        if(!row.contains(e.relatedTarget)) hide();
+    });
+
+    document.addEventListener('mousemove', function(e){
+        if(el.style.opacity === '1'){
+            const row = e.target.closest('.emp-row[data-emp]');
+            if(row) move(e.clientX, e.clientY);
+        }
+    });
+})();
+
+// Stubs so any leftover inline calls don't throw errors
+function showPopup(){}
+function hidePopup(){}
+function movePopup(){}
 
 // ── RFID scanner: Enter → next field ──
 document.querySelectorAll('input[name="rfid_uid"]').forEach(function(rfidInput){
@@ -1116,6 +1411,65 @@ function exportAttendance(){
 
 loadAttendance();
 setInterval(loadAttendance, 5000);
+</script>
+
+<script>
+// ── Open Reset Password modal ──
+function openResetPw(id, name){
+    document.getElementById('rp_id').value       = id;
+    document.getElementById('rp_name').innerText = name;
+    document.getElementById('rp_password').value = '';
+    new bootstrap.Modal(document.getElementById('resetPwModal')).show();
+}
+
+// ── Admin user search ──
+const auSearch = document.getElementById('auSearch');
+if(auSearch){
+    auSearch.addEventListener('input', function(){
+        const term = this.value.toLowerCase();
+        document.querySelectorAll('#auTable tbody tr').forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+        });
+    });
+}
+
+// ── Add Admin: password strength meter ──
+const auPwInput = document.getElementById('au_password');
+if(auPwInput){
+    auPwInput.addEventListener('input', function(){
+        const v = this.value; let score = 0;
+        if(v.length >= 6)  score++;
+        if(v.length >= 10) score++;
+        if(/[A-Z]/.test(v)) score++;
+        if(/[0-9]/.test(v)) score++;
+        if(/[^A-Za-z0-9]/.test(v)) score++;
+        const lvls = [
+            {w:'0%',  bg:'#ef4444', t:''},
+            {w:'25%', bg:'#ef4444', t:'Weak'},
+            {w:'50%', bg:'#f97316', t:'Fair'},
+            {w:'75%', bg:'#eab308', t:'Good'},
+            {w:'90%', bg:'#22c55e', t:'Strong'},
+            {w:'100%',bg:'#22c55e', t:'Very Strong'},
+        ];
+        const l   = lvls[Math.min(score, 5)];
+        const bar = document.getElementById('auStrengthBar');
+        const lbl = document.getElementById('auStrengthLabel');
+        if(bar){ bar.style.width = l.w; bar.style.background = l.bg; }
+        if(lbl){ lbl.style.color = l.bg; lbl.innerText = l.t; }
+    });
+}
+
+// ── Clear Add Admin modal on close ──
+const addAdminModal = document.getElementById('addAdminModal');
+if(addAdminModal){
+    addAdminModal.addEventListener('hidden.bs.modal', function(){
+        this.querySelector('form').reset();
+        const bar = document.getElementById('auStrengthBar');
+        const lbl = document.getElementById('auStrengthLabel');
+        if(bar){ bar.style.width='0%'; bar.style.background=''; }
+        if(lbl){ lbl.innerText=''; }
+    });
+}
 </script>
 
 <?php include 'includes/footer.php'; ?>
