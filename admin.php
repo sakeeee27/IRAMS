@@ -753,15 +753,15 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
         while($row = $res->fetch_assoc()):
         ?>
         <tr class="emp-row"
-            data-emp='<?= json_encode([
-                "name"         => $row["name"],
-                "position"     => $row["position"] ?? "",
-                "dept_name"    => $row["dept_name"] ?? "",
-                "employee_id"  => $row["employee_id"] ?? "",
-                "biometric_id" => $row["biometric_id"] ?? "",
-                "rfid_uid"     => $row["rfid_uid"] ?? "",
-                "photo"        => $row["photo"] ?? "default.png",
-            ], JSON_HEX_APOS) ?>'>
+            data-emp="<?= htmlspecialchars(json_encode([
+                'name'         => $row['name'],
+                'position'     => $row['position'] ?? '',
+                'dept_name'    => $row['dept_name'] ?? '',
+                'employee_id'  => $row['employee_id'] ?? '',
+                'biometric_id' => $row['biometric_id'] ?? '',
+                'rfid_uid'     => $row['rfid_uid'] ?? '',
+                'photo'        => $row['photo'] ?? 'default.png',
+            ]), ENT_QUOTES) ?>">
             <td><img src="<?= htmlspecialchars($row['photo']) ?>" class="emp-photo" onerror="this.src='default.png'"></td>
             <td><?= htmlspecialchars($row['employee_id'] ?? '—') ?></td>
             <td><?= htmlspecialchars($row['biometric_id'] ?? '—') ?></td>
@@ -825,7 +825,7 @@ $s_today = $conn->query("SELECT COUNT(*) c FROM attendance WHERE DATE(time)='$to
         <thead><tr><th>Employee</th><th>Position</th><th>Department</th><th>Date</th><th>Time</th><th>Status</th></tr></thead>
         <tbody id="attBody"></tbody>
     </table>
-    <div style="padding:10px 16px;font-size:12px;color:#475569;border-top:1px solid #0f172a;" id="attCount"></div>
+    <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);" id="attCount"></div>
     </div>
 </div>
 <?php elseif($page === 'admin_users'): ?>
@@ -848,8 +848,8 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
     </div>
     <div class="stat-card">
         <div class="stat-icon">&#128100;</div>
-        <div class="stat-val" style="color:#22c55e;">1</div>
-        <div class="stat-lbl">Logged In Now</div>
+        <div class="stat-val" style="color:#22c55e;"><?= $au_total ?></div>
+        <div class="stat-lbl">Total Accounts</div>
     </div>
 </div>
 
@@ -1084,17 +1084,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </form>
 </div></div></div>
 
-<!-- ══ EMPLOYEE HOVER POPUP ══ -->
-<div class="emp-popup" id="empPopup">
-    <img class="emp-popup-photo" id="popupPhoto" src="default.png" onerror="this.src='default.png'">
-    <div class="emp-popup-name"    id="popupName"></div>
-    <div class="emp-popup-position" id="popupPosition"></div>
-    <div class="emp-popup-dept"    id="popupDept"></div>
-    <div class="emp-popup-divider"></div>
-    <div class="emp-popup-row"><span>Employee ID</span><span id="popupEmpId"></span></div>
-    <div class="emp-popup-row"><span>Biometric ID</span><span id="popupBioId"></span></div>
-    <div class="emp-popup-row"><span>RFID</span><span id="popupRfid"></span></div>
-</div>
+<!-- Popup created dynamically by JS below -->
 
 <!-- ══ JS ══ -->
 <script>
@@ -1127,34 +1117,32 @@ if(window.location.search.includes('msg=')){
 
 // ── THEME TOGGLE ──
 (function(){
-    const html    = document.documentElement;
-    const toggle  = document.getElementById('themeToggle');
-    const label   = document.getElementById('themeLabel');
-    const saved   = localStorage.getItem('rfid_theme') || 'dark';
+    const saved = localStorage.getItem('rfid_theme') || 'dark';
 
     function applyTheme(theme){
-    const html   = document.documentElement;
-    const toggle = document.getElementById("themeToggle");
-    const label  = document.getElementById("themeLabel");
-    const logo   = document.getElementById("siteLogo");
+        const html   = document.documentElement;
+        const toggle = document.getElementById('themeToggle');
+        const label  = document.getElementById('themeLabel');
+        const logo   = document.getElementById('siteLogo');
 
-    if(theme === "light"){
-        html.classList.add("light");
-        toggle.checked  = true;
-        label.innerHTML = "&#9728;&#65039; Light Mode";
-        if(logo) logo.src = "irams.png";
-    } else {
-        html.classList.remove("light");
-        toggle.checked  = false;
-        label.innerHTML = "&#127769; Dark Mode";
-        if(logo) logo.src = "iramswhite.png";
+        if(theme === 'light'){
+            html.classList.add('light');
+            toggle.checked  = true;
+            label.innerHTML = '&#9728;&#65039; Light Mode';
+            if(logo) logo.src = 'irams.png';
+        } else {
+            html.classList.remove('light');
+            toggle.checked  = false;
+            label.innerHTML = '&#127769; Dark Mode';
+            if(logo) logo.src = 'iramswhite.png';
+        }
+        localStorage.setItem('rfid_theme', theme);
     }
-    localStorage.setItem("rfid_theme", theme);
-}
 
     applyTheme(saved);
 
-    toggle.addEventListener('change', function(){
+    const toggle = document.getElementById('themeToggle');
+    if(toggle) toggle.addEventListener('change', function(){
         applyTheme(this.checked ? 'light' : 'dark');
     });
 })();
@@ -1411,9 +1399,8 @@ function exportAttendance(){
 
 loadAttendance();
 setInterval(loadAttendance, 5000);
-</script>
 
-<script>
+
 // ── Open Reset Password modal ──
 function openResetPw(id, name){
     document.getElementById('rp_id').value       = id;
@@ -1422,54 +1409,59 @@ function openResetPw(id, name){
     new bootstrap.Modal(document.getElementById('resetPwModal')).show();
 }
 
-// ── Admin user search ──
-const auSearch = document.getElementById('auSearch');
-if(auSearch){
-    auSearch.addEventListener('input', function(){
-        const term = this.value.toLowerCase();
-        document.querySelectorAll('#auTable tbody tr').forEach(row => {
-            row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+// ── Admin users JS — wrapped in DOMContentLoaded ──
+document.addEventListener('DOMContentLoaded', function(){
+
+    // Search
+    const auSearch = document.getElementById('auSearch');
+    if(auSearch){
+        auSearch.addEventListener('input', function(){
+            const term = this.value.toLowerCase();
+            document.querySelectorAll('#auTable tbody tr').forEach(row => {
+                row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+            });
         });
-    });
-}
+    }
 
-// ── Add Admin: password strength meter ──
-const auPwInput = document.getElementById('au_password');
-if(auPwInput){
-    auPwInput.addEventListener('input', function(){
-        const v = this.value; let score = 0;
-        if(v.length >= 6)  score++;
-        if(v.length >= 10) score++;
-        if(/[A-Z]/.test(v)) score++;
-        if(/[0-9]/.test(v)) score++;
-        if(/[^A-Za-z0-9]/.test(v)) score++;
-        const lvls = [
-            {w:'0%',  bg:'#ef4444', t:''},
-            {w:'25%', bg:'#ef4444', t:'Weak'},
-            {w:'50%', bg:'#f97316', t:'Fair'},
-            {w:'75%', bg:'#eab308', t:'Good'},
-            {w:'90%', bg:'#22c55e', t:'Strong'},
-            {w:'100%',bg:'#22c55e', t:'Very Strong'},
-        ];
-        const l   = lvls[Math.min(score, 5)];
-        const bar = document.getElementById('auStrengthBar');
-        const lbl = document.getElementById('auStrengthLabel');
-        if(bar){ bar.style.width = l.w; bar.style.background = l.bg; }
-        if(lbl){ lbl.style.color = l.bg; lbl.innerText = l.t; }
-    });
-}
+    // Password strength meter
+    const auPwInput = document.getElementById('au_password');
+    if(auPwInput){
+        auPwInput.addEventListener('input', function(){
+            const v = this.value; let score = 0;
+            if(v.length >= 6)  score++;
+            if(v.length >= 10) score++;
+            if(/[A-Z]/.test(v)) score++;
+            if(/[0-9]/.test(v)) score++;
+            if(/[^A-Za-z0-9]/.test(v)) score++;
+            const lvls = [
+                {w:'0%',  bg:'#ef4444', t:''},
+                {w:'25%', bg:'#ef4444', t:'Weak'},
+                {w:'50%', bg:'#f97316', t:'Fair'},
+                {w:'75%', bg:'#eab308', t:'Good'},
+                {w:'90%', bg:'#22c55e', t:'Strong'},
+                {w:'100%',bg:'#22c55e', t:'Very Strong'},
+            ];
+            const l   = lvls[Math.min(score, 5)];
+            const bar = document.getElementById('auStrengthBar');
+            const lbl = document.getElementById('auStrengthLabel');
+            if(bar){ bar.style.width = l.w; bar.style.background = l.bg; }
+            if(lbl){ lbl.style.color = l.bg; lbl.innerText = l.t; }
+        });
+    }
 
-// ── Clear Add Admin modal on close ──
-const addAdminModal = document.getElementById('addAdminModal');
-if(addAdminModal){
-    addAdminModal.addEventListener('hidden.bs.modal', function(){
-        this.querySelector('form').reset();
-        const bar = document.getElementById('auStrengthBar');
-        const lbl = document.getElementById('auStrengthLabel');
-        if(bar){ bar.style.width='0%'; bar.style.background=''; }
-        if(lbl){ lbl.innerText=''; }
-    });
-}
+    // Clear Add Admin modal on close
+    const addAdminModal = document.getElementById('addAdminModal');
+    if(addAdminModal){
+        addAdminModal.addEventListener('hidden.bs.modal', function(){
+            this.querySelector('form').reset();
+            const bar = document.getElementById('auStrengthBar');
+            const lbl = document.getElementById('auStrengthLabel');
+            if(bar){ bar.style.width='0%'; bar.style.background=''; }
+            if(lbl){ lbl.innerText=''; }
+        });
+    }
+
+});
 </script>
 
 <?php include 'includes/footer.php'; ?>
