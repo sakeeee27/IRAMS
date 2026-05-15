@@ -76,6 +76,49 @@ if(isset($_POST['update'])){
     header("Location: admin.php?page=employees&msg=updated"); exit;
 }
 
+// ── ADD DEPARTMENT ──
+if(isset($_POST['add_dept'])){
+    $dn   = trim($conn->real_escape_string($_POST['dept_name'] ?? ''));
+    $logo = trim($conn->real_escape_string($_POST['dept_logo'] ?? ''));
+    if($dn){
+        $chk = $conn->prepare("SELECT id FROM departments WHERE name=? LIMIT 1");
+        $chk->bind_param("s", $dn); $chk->execute(); $chk->store_result();
+        if($chk->num_rows > 0){
+            $chk->close();
+            header("Location: admin.php?page=departments&msg=dept_dup"); exit;
+        }
+        $chk->close();
+        $conn->query("INSERT INTO departments (name, logo) VALUES ('$dn','$logo')");
+    }
+    header("Location: admin.php?page=departments&msg=dept_added"); exit;
+}
+
+// ── EDIT DEPARTMENT ──
+if(isset($_POST['edit_dept'])){
+    $did  = (int)$_POST['dept_id'];
+    $dn   = trim($conn->real_escape_string($_POST['dept_name'] ?? ''));
+    $logo = trim($conn->real_escape_string($_POST['dept_logo'] ?? ''));
+    if($did && $dn){
+        $conn->query("UPDATE departments SET name='$dn', logo='$logo' WHERE id=$did");
+    }
+    header("Location: admin.php?page=departments&msg=dept_updated"); exit;
+}
+
+// ── DELETE DEPARTMENT ──
+if(isset($_GET['delete_dept'])){
+    $did = (int)$_GET['delete_dept'];
+    if($did > 0){
+        // Prevent delete if employees are assigned
+        $chk = $conn->query("SELECT COUNT(*) c FROM users WHERE department_id=$did");
+        $cnt = $chk->fetch_assoc()['c'];
+        if($cnt > 0){
+            header("Location: admin.php?page=departments&msg=dept_has_emp"); exit;
+        }
+        $conn->query("DELETE FROM departments WHERE id=$did");
+    }
+    header("Location: admin.php?page=departments&msg=dept_deleted"); exit;
+}
+
 // ── ADD ADMIN USER ──
 if(isset($_POST['add_admin'])){
     $au_user = trim($_POST['au_username'] ?? '');
@@ -126,7 +169,12 @@ $today_att   = $conn->query("SELECT COUNT(*) c FROM attendance WHERE DATE(time)=
 $total_att   = $conn->query("SELECT COUNT(*) c FROM attendance")->fetch_assoc()['c'];
 
 $page = $_GET['page'] ?? 'dashboard';
+
+// ── Initialize to prevent undefined variable warnings ──
+$pw_error   = '';
+$pw_success = '';
 ?>
+
 <?php
 $page_title = "Admin Panel";
 $page_type  = "admin";
@@ -600,6 +648,7 @@ include 'includes/header.php';
         <a href="admin.php?page=dashboard"   class="nav-item <?= $page==='dashboard'   ? 'active':'' ?>"><span class="nav-icon">&#9741;</span>  Dashboard</a>
         <a href="admin.php?page=employees"   class="nav-item <?= $page==='employees'   ? 'active':'' ?>"><span class="nav-icon">&#128100;</span> Employees</a>
         <a href="admin.php?page=attendance"  class="nav-item <?= $page==='attendance'  ? 'active':'' ?>"><span class="nav-icon">&#128203;</span> Attendance Log</a>
+        <a href="admin.php?page=departments"  class="nav-item <?= $page==='departments'  ? 'active':'' ?>"><span class="nav-icon">&#127970;</span> Departments</a>
         <a href="admin.php?page=admin_users" class="nav-item <?= $page==='admin_users' ? 'active':'' ?>"><span class="nav-icon">&#128737;</span> Admin Users</a>
         <a href="summary_report.php"          class="nav-item"><span class="nav-icon">&#128196;</span> Summary Report</a>
         <a href="change_password.php"         class="nav-item"><span class="nav-icon">&#128274;</span> Change Password</a>
@@ -642,7 +691,12 @@ $alerts = [
     'au_deleted' => ['warning', '&#10003; Admin account deleted.'],
     'au_reset'   => ['info',    '&#10003; Password has been reset.'],
     'au_dup'     => ['danger',  '&#9888; Username already exists.'],
-    'au_err'     => ['danger',  '&#9888; Please fill all fields (min. 6 char password).'],
+    'au_err'        => ['danger',  '&#9888; Please fill all fields (min. 6 char password).'],
+    'dept_added'    => ['success', '&#10003; Department added successfully.'],
+    'dept_updated'  => ['info',    '&#10003; Department updated.'],
+    'dept_deleted'  => ['warning', '&#10003; Department deleted.'],
+    'dept_dup'      => ['danger',  '&#9888; Department name already exists.'],
+    'dept_has_emp'  => ['danger',  '&#9888; Cannot delete — employees are assigned to this department.'],
 ];
 if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
     [$type, $text] = $alerts[$_GET['msg']];
@@ -753,15 +807,15 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
         while($row = $res->fetch_assoc()):
         ?>
         <tr class="emp-row"
-            data-emp="<?= htmlspecialchars(json_encode([
-                'name'         => $row['name'],
-                'position'     => $row['position'] ?? '',
-                'dept_name'    => $row['dept_name'] ?? '',
-                'employee_id'  => $row['employee_id'] ?? '',
-                'biometric_id' => $row['biometric_id'] ?? '',
-                'rfid_uid'     => $row['rfid_uid'] ?? '',
-                'photo'        => $row['photo'] ?? 'default.png',
-            ]), ENT_QUOTES) ?>">
+            data-emp='<?= json_encode([
+                "name"         => $row["name"],
+                "position"     => $row["position"] ?? "",
+                "dept_name"    => $row["dept_name"] ?? "",
+                "employee_id"  => $row["employee_id"] ?? "",
+                "biometric_id" => $row["biometric_id"] ?? "",
+                "rfid_uid"     => $row["rfid_uid"] ?? "",
+                "photo"        => $row["photo"] ?? "default.png",
+            ], JSON_HEX_APOS) ?>'>
             <td><img src="<?= htmlspecialchars($row['photo']) ?>" class="emp-photo" onerror="this.src='default.png'"></td>
             <td><?= htmlspecialchars($row['employee_id'] ?? '—') ?></td>
             <td><?= htmlspecialchars($row['biometric_id'] ?? '—') ?></td>
@@ -772,7 +826,12 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
             <td><?= htmlspecialchars($row['position'] ?? '—') ?></td>
             <td><?= htmlspecialchars($row['dept_name'] ?? '—') ?></td>
             <td>
-                <button class="btn btn-primary btn-sm" style="width:60px" onclick='editUser(<?= json_encode($row) ?>)'>Edit</button>
+                <button class="btn btn-primary btn-sm" style="width:60px"
+                    onclick='editUser(<?= htmlspecialchars(json_encode([
+                        "id"=>$row["id"],"employee_id"=>$row["employee_id"],"biometric_id"=>$row["biometric_id"],
+                        "rfid_uid"=>$row["rfid_uid"],"first_name"=>$row["first_name"],"middle_name"=>$row["middle_name"],
+                        "surname"=>$row["surname"],"position"=>$row["position"],"department_id"=>$row["department_id"]
+                    ]), ENT_QUOTES) ?>)'>Edit</button>
                 <a href="delete.php?id=<?= $row['id'] ?>" class="btn btn-danger btn-sm" style="width:60px" onclick="return confirm('Delete this employee?')">Delete</a>
             </td>
         </tr>
@@ -825,9 +884,124 @@ $s_today = $conn->query("SELECT COUNT(*) c FROM attendance WHERE DATE(time)='$to
         <thead><tr><th>Employee</th><th>Position</th><th>Department</th><th>Date</th><th>Time</th><th>Status</th></tr></thead>
         <tbody id="attBody"></tbody>
     </table>
-    <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);" id="attCount"></div>
+    <div style="padding:10px 16px;font-size:12px;color:#475569;border-top:1px solid #0f172a;" id="attCount"></div>
     </div>
 </div>
+<?php elseif($page === 'departments'): ?>
+<!-- ══════════════════════════════════════
+     PAGE: DEPARTMENTS
+══════════════════════════════════════ -->
+<div class="page-header">
+    <h1>&#127970; Departments</h1>
+    <p>Manage departments and their logos.</p>
+</div>
+
+<?php
+$dept_total = $conn->query("SELECT COUNT(*) c FROM departments")->fetch_assoc()['c'];
+$emp_total  = $conn->query("SELECT COUNT(*) c FROM users")->fetch_assoc()['c'];
+?>
+<div class="stat-grid" style="grid-template-columns:repeat(2,1fr);max-width:500px;margin-bottom:24px;">
+    <div class="stat-card">
+        <div class="stat-icon">&#127970;</div>
+        <div class="stat-val"><?= $dept_total ?></div>
+        <div class="stat-lbl">Total Departments</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">&#128100;</div>
+        <div class="stat-val" style="color:#22c55e;"><?= $emp_total ?></div>
+        <div class="stat-lbl">Total Employees</div>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-header">
+        <span class="panel-title">&#127970; Department List</span>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+            <input type="text" id="deptSearch" class="ctrl-input" placeholder="&#128269; Search..." style="min-width:200px;">
+            <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addDeptModal">+ Add Department</button>
+        </div>
+    </div>
+    <div class="table-responsive">
+    <table class="tbl" id="deptTable">
+        <thead>
+        <tr>
+            <th>#</th>
+            <th>Logo</th>
+            <th>Department Name</th>
+            <th>Employees</th>
+            <th>Logo Path</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        <?php
+        $dept_res = $conn->query("
+            SELECT departments.id, departments.name, departments.logo,
+                   COUNT(users.id) AS emp_count
+            FROM departments
+            LEFT JOIN users ON users.department_id = departments.id
+            GROUP BY departments.id, departments.name, departments.logo
+            ORDER BY departments.name ASC
+        ");
+        $d_num = 0;
+        while($dept = $dept_res->fetch_assoc()):
+            $d_num++;
+        ?>
+        <tr>
+            <td style="color:var(--text-muted);width:40px;"><?= $d_num ?></td>
+            <td>
+                <?php if($dept['logo']): ?>
+                <img src="<?= htmlspecialchars($dept['logo']) ?>"
+                     onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+                     style="width:42px;height:42px;object-fit:contain;border-radius:8px;background:var(--surface2);padding:4px;border:1px solid var(--border);">
+                <div style="display:none;width:42px;height:42px;border-radius:8px;background:linear-gradient(135deg,#1e40af,#0ea5e9);
+                     align-items:center;justify-content:center;font-size:18px;color:white;">&#127970;</div>
+                <?php else: ?>
+                <div style="width:42px;height:42px;border-radius:8px;background:linear-gradient(135deg,#1e40af,#0ea5e9);
+                     display:flex;align-items:center;justify-content:center;font-size:18px;color:white;">&#127970;</div>
+                <?php endif; ?>
+            </td>
+            <td style="font-weight:bold;color:var(--text-strong);font-size:14px;">
+                <?= htmlspecialchars($dept['name']) ?>
+            </td>
+            <td>
+                <span style="font-size:12px;padding:3px 10px;border-radius:999px;
+                    background:rgba(56,189,248,0.12);color:#38bdf8;
+                    border:1px solid rgba(56,189,248,0.25);">
+                    <?= $dept['emp_count'] ?> employee<?= $dept['emp_count'] != 1 ? 's' : '' ?>
+                </span>
+            </td>
+            <td style="font-size:12px;color:var(--text-muted);font-family:monospace;">
+                <?= htmlspecialchars($dept['logo'] ?: '—') ?>
+            </td>
+            <td>
+                <button class="btn btn-primary btn-sm me-1" style="font-size:11px;"
+                    onclick="openEditDept(<?= $dept['id'] ?>, <?= json_encode($dept['name']) ?>, <?= json_encode($dept['logo'] ?? '') ?>)">
+                    &#9998; Edit
+                </button>
+                <?php if($dept['emp_count'] == 0): ?>
+                <a href="admin.php?page=departments&delete_dept=<?= $dept['id'] ?>"
+                   class="btn btn-danger btn-sm" style="font-size:11px;"
+                   onclick="return confirm('Delete department '<?= htmlspecialchars(addslashes($dept['name'])) ?>'?')">
+                    &#128465; Delete
+                </a>
+                <?php else: ?>
+                <button class="btn btn-secondary btn-sm" style="font-size:11px;" disabled
+                    title="Cannot delete — has <?= $dept['emp_count'] ?> employee(s)">
+                    &#128465; Delete
+                </button>
+                <?php endif; ?>
+            </td>
+        </tr>
+        <?php endwhile; ?>
+        </tbody>
+    </table>
+    </div>
+    <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);">
+        <?= $dept_total ?> department(s) registered
+    </div>
+</div>
+
 <?php elseif($page === 'admin_users'): ?>
 <!-- ══════════════════════════════════════
      PAGE: ADMIN USERS
@@ -848,8 +1022,8 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
     </div>
     <div class="stat-card">
         <div class="stat-icon">&#128100;</div>
-        <div class="stat-val" style="color:#22c55e;"><?= $au_total ?></div>
-        <div class="stat-lbl">Total Accounts</div>
+        <div class="stat-val" style="color:#22c55e;">1</div>
+        <div class="stat-lbl">Logged In Now</div>
     </div>
 </div>
 
@@ -1013,6 +1187,92 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </div></div></div>
 <?php endif; ?>
 
+<!-- ══ ADD DEPARTMENT MODAL ══ -->
+<div class="modal fade" id="addDeptModal">
+<div class="modal-dialog">
+<div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
+<form method="POST">
+<div class="modal-header" style="border-color:#334155;">
+    <h5 class="modal-title">&#127970; Add Department</h5>
+    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+<div class="row g-3">
+    <div class="col-12">
+        <div class="form-floating">
+            <input class="form-control bg-dark text-white border-secondary"
+                name="dept_name" id="add_dept_name" placeholder="Department Name" required>
+            <label>Department Name *</label>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="form-floating">
+            <input class="form-control bg-dark text-white border-secondary"
+                name="dept_logo" id="add_dept_logo" placeholder="Logo path e.g. logos/mcn.png">
+            <label>Logo Path (optional)</label>
+        </div>
+        <small class="text-secondary" style="font-size:11px;">
+            Relative path to logo image, e.g. <code>logos/mcn.png</code>. Leave blank for default icon.
+        </small>
+    </div>
+    <!-- Logo preview -->
+    <div class="col-12" id="addLogoPreviewWrap" style="display:none;">
+        <label class="form-label text-secondary" style="font-size:11px;">Preview</label>
+        <img id="addLogoPreview" src="" style="height:48px;object-fit:contain;border-radius:8px;
+             background:#0f172a;padding:6px;border:1px solid #334155;">
+    </div>
+</div>
+</div>
+<div class="modal-footer" style="border-color:#334155;">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button class="btn btn-success" name="add_dept">&#10133; Add Department</button>
+</div>
+</form>
+</div></div></div>
+
+<!-- ══ EDIT DEPARTMENT MODAL ══ -->
+<div class="modal fade" id="editDeptModal">
+<div class="modal-dialog">
+<div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
+<form method="POST">
+<input type="hidden" name="dept_id" id="edit_dept_id">
+<div class="modal-header" style="border-color:#334155;">
+    <h5 class="modal-title">&#9998; Edit Department</h5>
+    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+<div class="row g-3">
+    <div class="col-12">
+        <div class="form-floating">
+            <input class="form-control bg-dark text-white border-secondary"
+                name="dept_name" id="edit_dept_name" placeholder="Department Name" required>
+            <label>Department Name *</label>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="form-floating">
+            <input class="form-control bg-dark text-white border-secondary"
+                name="dept_logo" id="edit_dept_logo" placeholder="Logo path">
+            <label>Logo Path (optional)</label>
+        </div>
+        <small class="text-secondary" style="font-size:11px;">
+            Relative path to logo image, e.g. <code>logos/mcn.png</code>.
+        </small>
+    </div>
+    <div class="col-12" id="editLogoPreviewWrap" style="display:none;">
+        <label class="form-label text-secondary" style="font-size:11px;">Preview</label>
+        <img id="editLogoPreview" src="" style="height:48px;object-fit:contain;border-radius:8px;
+             background:#0f172a;padding:6px;border:1px solid #334155;">
+    </div>
+</div>
+</div>
+<div class="modal-footer" style="border-color:#334155;">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button class="btn btn-primary" name="edit_dept">&#10003; Save Changes</button>
+</div>
+</form>
+</div></div></div>
+
 <!-- ══ ADD ADMIN MODAL ══ -->
 <div class="modal fade" id="addAdminModal">
 <div class="modal-dialog">
@@ -1084,7 +1344,13 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </form>
 </div></div></div>
 
-<!-- Popup created dynamically by JS below -->
+    <div class="emp-popup-position" id="popupPosition"></div>
+    <div class="emp-popup-dept"    id="popupDept"></div>
+    <div class="emp-popup-divider"></div>
+    <div class="emp-popup-row"><span>Employee ID</span><span id="popupEmpId"></span></div>
+    <div class="emp-popup-row"><span>Biometric ID</span><span id="popupBioId"></span></div>
+    <div class="emp-popup-row"><span>RFID</span><span id="popupRfid"></span></div>
+</div>
 
 <!-- ══ JS ══ -->
 <script>
@@ -1116,32 +1382,30 @@ if(window.location.search.includes('msg=')){
 }
 
 // ── THEME TOGGLE ──
-(function(){
-    const saved = localStorage.getItem('rfid_theme') || 'dark';
-
-    function applyTheme(theme){
-        const html   = document.documentElement;
-        const toggle = document.getElementById('themeToggle');
-        const label  = document.getElementById('themeLabel');
-        const logo   = document.getElementById('siteLogo');
-
-        if(theme === 'light'){
-            html.classList.add('light');
-            toggle.checked  = true;
-            label.innerHTML = '&#9728;&#65039; Light Mode';
-            if(logo) logo.src = 'irams.png';
-        } else {
-            html.classList.remove('light');
-            toggle.checked  = false;
-            label.innerHTML = '&#127769; Dark Mode';
-            if(logo) logo.src = 'iramswhite.png';
-        }
-        localStorage.setItem('rfid_theme', theme);
-    }
-
-    applyTheme(saved);
-
+function applyTheme(theme){
+    const html   = document.documentElement;
     const toggle = document.getElementById('themeToggle');
+    const label  = document.getElementById('themeLabel');
+    const logo   = document.getElementById('siteLogo');
+
+    if(theme === 'light'){
+        html.classList.add('light');
+        if(toggle) toggle.checked  = true;
+        if(label)  label.innerHTML = '&#9728;&#65039; Light Mode';
+        if(logo)   logo.src = 'irams.png';
+    } else {
+        html.classList.remove('light');
+        if(toggle) toggle.checked  = false;
+        if(label)  label.innerHTML = '&#127769; Dark Mode';
+        if(logo)   logo.src = 'iramswhite.png';
+    }
+    localStorage.setItem('rfid_theme', theme);
+}
+
+(function(){
+    const saved  = localStorage.getItem('rfid_theme') || 'dark';
+    const toggle = document.getElementById('themeToggle');
+    applyTheme(saved);
     if(toggle) toggle.addEventListener('change', function(){
         applyTheme(this.checked ? 'light' : 'dark');
     });
@@ -1392,14 +1656,17 @@ function exportAttendance(){
     window.open('export_attendance.php?' + params.toString(), '_blank');
 }
 
-['attSearch','attStatus','attDate'].forEach(id=>{
+['attSearch'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.addEventListener('input', renderAtt);
+});
+['attStatus','attDate'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('change', renderAtt);
 });
 
 loadAttendance();
 setInterval(loadAttendance, 5000);
-
 
 // ── Open Reset Password modal ──
 function openResetPw(id, name){
@@ -1409,58 +1676,118 @@ function openResetPw(id, name){
     new bootstrap.Modal(document.getElementById('resetPwModal')).show();
 }
 
-// ── Admin users JS — wrapped in DOMContentLoaded ──
-document.addEventListener('DOMContentLoaded', function(){
+// ── Admin user search ──
+const auSearch = document.getElementById('auSearch');
+if(auSearch){
+    auSearch.addEventListener('input', function(){
+        const term = this.value.toLowerCase();
+        document.querySelectorAll('#auTable tbody tr').forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+        });
+    });
+}
 
-    // Search
-    const auSearch = document.getElementById('auSearch');
-    if(auSearch){
-        auSearch.addEventListener('input', function(){
+// ── Add Admin: password strength meter ──
+const auPwInput = document.getElementById('au_password');
+if(auPwInput){
+    auPwInput.addEventListener('input', function(){
+        const v = this.value; let score = 0;
+        if(v.length >= 6)  score++;
+        if(v.length >= 10) score++;
+        if(/[A-Z]/.test(v)) score++;
+        if(/[0-9]/.test(v)) score++;
+        if(/[^A-Za-z0-9]/.test(v)) score++;
+        const lvls = [
+            {w:'0%',  bg:'#ef4444', t:''},
+            {w:'25%', bg:'#ef4444', t:'Weak'},
+            {w:'50%', bg:'#f97316', t:'Fair'},
+            {w:'75%', bg:'#eab308', t:'Good'},
+            {w:'90%', bg:'#22c55e', t:'Strong'},
+            {w:'100%',bg:'#22c55e', t:'Very Strong'},
+        ];
+        const l   = lvls[Math.min(score, 5)];
+        const bar = document.getElementById('auStrengthBar');
+        const lbl = document.getElementById('auStrengthLabel');
+        if(bar){ bar.style.width = l.w; bar.style.background = l.bg; }
+        if(lbl){ lbl.style.color = l.bg; lbl.innerText = l.t; }
+    });
+}
+
+// ── Clear Add Admin modal on close ──
+const addAdminModal = document.getElementById('addAdminModal');
+if(addAdminModal){
+    addAdminModal.addEventListener('hidden.bs.modal', function(){
+        this.querySelector('form').reset();
+        const bar = document.getElementById('auStrengthBar');
+        const lbl = document.getElementById('auStrengthLabel');
+        if(bar){ bar.style.width='0%'; bar.style.background=''; }
+        if(lbl){ lbl.innerText=''; }
+    });
+}
+
+// ── Department: open edit modal ──
+function openEditDept(id, name, logo){
+    document.getElementById('edit_dept_id').value   = id;
+    document.getElementById('edit_dept_name').value = name;
+    document.getElementById('edit_dept_logo').value = logo;
+    const wrap = document.getElementById('editLogoPreviewWrap');
+    const img  = document.getElementById('editLogoPreview');
+    if(logo){ img.src = logo; wrap.style.display = 'block'; }
+    else     { wrap.style.display = 'none'; }
+    new bootstrap.Modal(document.getElementById('editDeptModal')).show();
+}
+
+// ── Department: live logo preview (add modal) ──
+document.addEventListener('DOMContentLoaded', function(){
+    // Add dept logo preview
+    const addLogo = document.getElementById('add_dept_logo');
+    if(addLogo){
+        addLogo.addEventListener('input', function(){
+            const wrap = document.getElementById('addLogoPreviewWrap');
+            const img  = document.getElementById('addLogoPreview');
+            if(this.value.trim()){
+                img.src = this.value.trim();
+                wrap.style.display = 'block';
+            } else {
+                wrap.style.display = 'none';
+            }
+        });
+    }
+
+    // Edit dept logo preview
+    const editLogo = document.getElementById('edit_dept_logo');
+    if(editLogo){
+        editLogo.addEventListener('input', function(){
+            const wrap = document.getElementById('editLogoPreviewWrap');
+            const img  = document.getElementById('editLogoPreview');
+            if(this.value.trim()){
+                img.src = this.value.trim();
+                wrap.style.display = 'block';
+            } else {
+                wrap.style.display = 'none';
+            }
+        });
+    }
+
+    // Dept table search
+    const deptSearch = document.getElementById('deptSearch');
+    if(deptSearch){
+        deptSearch.addEventListener('input', function(){
             const term = this.value.toLowerCase();
-            document.querySelectorAll('#auTable tbody tr').forEach(row => {
+            document.querySelectorAll('#deptTable tbody tr').forEach(row => {
                 row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
             });
         });
     }
 
-    // Password strength meter
-    const auPwInput = document.getElementById('au_password');
-    if(auPwInput){
-        auPwInput.addEventListener('input', function(){
-            const v = this.value; let score = 0;
-            if(v.length >= 6)  score++;
-            if(v.length >= 10) score++;
-            if(/[A-Z]/.test(v)) score++;
-            if(/[0-9]/.test(v)) score++;
-            if(/[^A-Za-z0-9]/.test(v)) score++;
-            const lvls = [
-                {w:'0%',  bg:'#ef4444', t:''},
-                {w:'25%', bg:'#ef4444', t:'Weak'},
-                {w:'50%', bg:'#f97316', t:'Fair'},
-                {w:'75%', bg:'#eab308', t:'Good'},
-                {w:'90%', bg:'#22c55e', t:'Strong'},
-                {w:'100%',bg:'#22c55e', t:'Very Strong'},
-            ];
-            const l   = lvls[Math.min(score, 5)];
-            const bar = document.getElementById('auStrengthBar');
-            const lbl = document.getElementById('auStrengthLabel');
-            if(bar){ bar.style.width = l.w; bar.style.background = l.bg; }
-            if(lbl){ lbl.style.color = l.bg; lbl.innerText = l.t; }
-        });
-    }
-
-    // Clear Add Admin modal on close
-    const addAdminModal = document.getElementById('addAdminModal');
-    if(addAdminModal){
-        addAdminModal.addEventListener('hidden.bs.modal', function(){
+    // Clear add dept modal on close
+    const addDeptModal = document.getElementById('addDeptModal');
+    if(addDeptModal){
+        addDeptModal.addEventListener('hidden.bs.modal', function(){
             this.querySelector('form').reset();
-            const bar = document.getElementById('auStrengthBar');
-            const lbl = document.getElementById('auStrengthLabel');
-            if(bar){ bar.style.width='0%'; bar.style.background=''; }
-            if(lbl){ lbl.innerText=''; }
+            document.getElementById('addLogoPreviewWrap').style.display = 'none';
         });
     }
-
 });
 </script>
 
