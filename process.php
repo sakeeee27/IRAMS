@@ -17,11 +17,16 @@ if(!$user){
     exit;
 }
 
-// Toggle IN/OUT — prepared statement
+// ── MCN employees: display only at entrance terminal ──
+// This file (process.php) is used by the INSIDE terminal (index.php)
+// so MCN employees should record attendance here normally.
+// The entrance terminal (display.php) uses process_display.php instead,
+// which handles the MCN display-only logic.
+// Both terminals record attendance for all departments via process.php.
+
 $last   = get_last_attendance($conn, $user['id']);
 $status = ($last && $last['status'] === 'IN') ? 'OUT' : 'IN';
 
-// Insert attendance — prepared statement
 insert_attendance($conn, $user['id'], $status);
 
 echo json_encode([

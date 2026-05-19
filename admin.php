@@ -169,12 +169,7 @@ $today_att   = $conn->query("SELECT COUNT(*) c FROM attendance WHERE DATE(time)=
 $total_att   = $conn->query("SELECT COUNT(*) c FROM attendance")->fetch_assoc()['c'];
 
 $page = $_GET['page'] ?? 'dashboard';
-
-// ── Initialize to prevent undefined variable warnings ──
-$pw_error   = '';
-$pw_success = '';
 ?>
-
 <?php
 $page_title = "Admin Panel";
 $page_type  = "admin";
@@ -807,15 +802,15 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
         while($row = $res->fetch_assoc()):
         ?>
         <tr class="emp-row"
-            data-emp='<?= json_encode([
-                "name"         => $row["name"],
-                "position"     => $row["position"] ?? "",
-                "dept_name"    => $row["dept_name"] ?? "",
-                "employee_id"  => $row["employee_id"] ?? "",
-                "biometric_id" => $row["biometric_id"] ?? "",
-                "rfid_uid"     => $row["rfid_uid"] ?? "",
-                "photo"        => $row["photo"] ?? "default.png",
-            ], JSON_HEX_APOS) ?>'>
+            data-emp="<?= htmlspecialchars(json_encode([
+                'name'         => $row['name'],
+                'position'     => $row['position'] ?? '',
+                'dept_name'    => $row['dept_name'] ?? '',
+                'employee_id'  => $row['employee_id'] ?? '',
+                'biometric_id' => $row['biometric_id'] ?? '',
+                'rfid_uid'     => $row['rfid_uid'] ?? '',
+                'photo'        => $row['photo'] ?? 'default.png',
+            ]), ENT_QUOTES) ?>">
             <td><img src="<?= htmlspecialchars($row['photo']) ?>" class="emp-photo" onerror="this.src='default.png'"></td>
             <td><?= htmlspecialchars($row['employee_id'] ?? '—') ?></td>
             <td><?= htmlspecialchars($row['biometric_id'] ?? '—') ?></td>
@@ -826,12 +821,7 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
             <td><?= htmlspecialchars($row['position'] ?? '—') ?></td>
             <td><?= htmlspecialchars($row['dept_name'] ?? '—') ?></td>
             <td>
-                <button class="btn btn-primary btn-sm" style="width:60px"
-                    onclick='editUser(<?= htmlspecialchars(json_encode([
-                        "id"=>$row["id"],"employee_id"=>$row["employee_id"],"biometric_id"=>$row["biometric_id"],
-                        "rfid_uid"=>$row["rfid_uid"],"first_name"=>$row["first_name"],"middle_name"=>$row["middle_name"],
-                        "surname"=>$row["surname"],"position"=>$row["position"],"department_id"=>$row["department_id"]
-                    ]), ENT_QUOTES) ?>)'>Edit</button>
+                <button class="btn btn-primary btn-sm" style="width:60px" onclick='editUser(<?= json_encode($row) ?>)'>Edit</button>
                 <a href="delete.php?id=<?= $row['id'] ?>" class="btn btn-danger btn-sm" style="width:60px" onclick="return confirm('Delete this employee?')">Delete</a>
             </td>
         </tr>
@@ -975,14 +965,17 @@ $emp_total  = $conn->query("SELECT COUNT(*) c FROM users")->fetch_assoc()['c'];
                 <?= htmlspecialchars($dept['logo'] ?: '—') ?>
             </td>
             <td>
-                <button class="btn btn-primary btn-sm me-1" style="font-size:11px;"
-                    onclick="openEditDept(<?= $dept['id'] ?>, <?= json_encode($dept['name']) ?>, <?= json_encode($dept['logo'] ?? '') ?>)">
+                     <button class="btn btn-primary btn-sm me-1" style="font-size:11px;"
+                    data-dept-id="<?= $dept['id'] ?>"
+                    data-dept-name="<?= htmlspecialchars($dept['name'], ENT_QUOTES) ?>"
+                    data-dept-logo="<?= htmlspecialchars($dept['logo'] ?? '', ENT_QUOTES) ?>"
+                    onclick="openEditDeptFromBtn(this)">
                     &#9998; Edit
                 </button>
                 <?php if($dept['emp_count'] == 0): ?>
                 <a href="admin.php?page=departments&delete_dept=<?= $dept['id'] ?>"
                    class="btn btn-danger btn-sm" style="font-size:11px;"
-                   onclick="return confirm('Delete department '<?= htmlspecialchars(addslashes($dept['name'])) ?>'?')">
+                   onclick="return confirm('Delete department '<?= htmlspecialchars($dept['name'], ENT_QUOTES) ?>'?')">
                     &#128465; Delete
                 </a>
                 <?php else: ?>
@@ -1001,7 +994,7 @@ $emp_total  = $conn->query("SELECT COUNT(*) c FROM users")->fetch_assoc()['c'];
         <?= $dept_total ?> department(s) registered
     </div>
 </div>
-
+ 
 <?php elseif($page === 'admin_users'): ?>
 <!-- ══════════════════════════════════════
      PAGE: ADMIN USERS
@@ -1010,7 +1003,7 @@ $emp_total  = $conn->query("SELECT COUNT(*) c FROM users")->fetch_assoc()['c'];
     <h1>&#128737; Admin Users</h1>
     <p>Manage accounts with access to this admin panel.</p>
 </div>
-
+ 
 <?php
 $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c'];
 ?>
@@ -1026,7 +1019,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
         <div class="stat-lbl">Logged In Now</div>
     </div>
 </div>
-
+ 
 <div class="panel">
     <div class="panel-header">
         <span class="panel-title">&#128737; Admin Accounts</span>
@@ -1114,9 +1107,9 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
     </div>
 </div>
 <?php endif; ?>
-
+ 
 </div><!-- /main -->
-
+ 
 <?php if($page === 'employees'): ?>
 <!-- ══ ADD MODAL ══ -->
 <div class="modal fade" id="addModal">
@@ -1151,7 +1144,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </div>
 </form>
 </div></div></div>
-
+ 
 <!-- ══ EDIT MODAL ══ -->
 <div class="modal fade" id="editModal">
 <div class="modal-dialog modal-lg">
@@ -1186,7 +1179,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </form>
 </div></div></div>
 <?php endif; ?>
-
+ 
 <!-- ══ ADD DEPARTMENT MODAL ══ -->
 <div class="modal fade" id="addDeptModal">
 <div class="modal-dialog">
@@ -1229,7 +1222,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </div>
 </form>
 </div></div></div>
-
+ 
 <!-- ══ EDIT DEPARTMENT MODAL ══ -->
 <div class="modal fade" id="editDeptModal">
 <div class="modal-dialog">
@@ -1272,7 +1265,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </div>
 </form>
 </div></div></div>
-
+ 
 <!-- ══ ADD ADMIN MODAL ══ -->
 <div class="modal fade" id="addAdminModal">
 <div class="modal-dialog">
@@ -1315,7 +1308,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </div>
 </form>
 </div></div></div>
-
+ 
 <!-- ══ RESET PASSWORD MODAL ══ -->
 <div class="modal fade" id="resetPwModal">
 <div class="modal-dialog modal-sm">
@@ -1343,15 +1336,9 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 </div>
 </form>
 </div></div></div>
-
-    <div class="emp-popup-position" id="popupPosition"></div>
-    <div class="emp-popup-dept"    id="popupDept"></div>
-    <div class="emp-popup-divider"></div>
-    <div class="emp-popup-row"><span>Employee ID</span><span id="popupEmpId"></span></div>
-    <div class="emp-popup-row"><span>Biometric ID</span><span id="popupBioId"></span></div>
-    <div class="emp-popup-row"><span>RFID</span><span id="popupRfid"></span></div>
-</div>
-
+ 
+<!-- Popup created dynamically by JS on body -->
+ 
 <!-- ══ JS ══ -->
 <script>
 // ── Edit user ──
@@ -1367,50 +1354,54 @@ function editUser(u){
     document.getElementById('edit_dept').value     = u.department_id ?? '';
     new bootstrap.Modal(document.getElementById('editModal')).show();
 }
-
+ 
 // ── Clear add modal on close ──
 document.addEventListener('DOMContentLoaded', function(){
     var addModal = document.getElementById('addModal');
     if(addModal) addModal.addEventListener('hidden.bs.modal', function(){ this.querySelector('form').reset(); });
 });
-
+ 
 // ── Remove ?msg from URL ──
 if(window.location.search.includes('msg=')){
     const u = new URL(window.location);
     u.searchParams.delete('msg');
     window.history.replaceState(null,'', u.toString());
 }
-
+ 
 // ── THEME TOGGLE ──
-function applyTheme(theme){
-    const html   = document.documentElement;
-    const toggle = document.getElementById('themeToggle');
-    const label  = document.getElementById('themeLabel');
-    const logo   = document.getElementById('siteLogo');
-
-    if(theme === 'light'){
-        html.classList.add('light');
-        if(toggle) toggle.checked  = true;
-        if(label)  label.innerHTML = '&#9728;&#65039; Light Mode';
-        if(logo)   logo.src = 'irams.png';
-    } else {
-        html.classList.remove('light');
-        if(toggle) toggle.checked  = false;
-        if(label)  label.innerHTML = '&#127769; Dark Mode';
-        if(logo)   logo.src = 'iramswhite.png';
-    }
-    localStorage.setItem('rfid_theme', theme);
-}
-
 (function(){
-    const saved  = localStorage.getItem('rfid_theme') || 'dark';
-    const toggle = document.getElementById('themeToggle');
+    const html    = document.documentElement;
+    const toggle  = document.getElementById('themeToggle');
+    const label   = document.getElementById('themeLabel');
+    const saved   = localStorage.getItem('rfid_theme') || 'dark';
+ 
+    function applyTheme(theme){
+    const html   = document.documentElement;
+    const toggle = document.getElementById("themeToggle");
+    const label  = document.getElementById("themeLabel");
+    const logo   = document.getElementById("siteLogo");
+ 
+    if(theme === "light"){
+        html.classList.add("light");
+        toggle.checked  = true;
+        label.innerHTML = "&#9728;&#65039; Light Mode";
+        if(logo) logo.src = "irams.png";
+    } else {
+        html.classList.remove("light");
+        toggle.checked  = false;
+        label.innerHTML = "&#127769; Dark Mode";
+        if(logo) logo.src = "iramswhite.png";
+    }
+    localStorage.setItem("rfid_theme", theme);
+}
+ 
     applyTheme(saved);
-    if(toggle) toggle.addEventListener('change', function(){
+ 
+    toggle.addEventListener('change', function(){
         applyTheme(this.checked ? 'light' : 'dark');
     });
 })();
-
+ 
 // ── Employee search ──
 const searchBox = document.getElementById('searchBox');
 if(searchBox){
@@ -1422,12 +1413,12 @@ if(searchBox){
         });
     });
 }
-
-// Uses data-emp attribute + event delegation — no inline JS breakage
+ 
+// ── EMPLOYEE HOVER POPUP ──
 (function(){
-    // Create popup div on body
+    // Build popup on <body> so it is never clipped by overflow:hidden
     const el = document.createElement('div');
-    el.id = 'empPopup';
+    el.id = 'irams_popup';
     Object.assign(el.style, {
         position:'fixed', zIndex:'99999', width:'240px',
         borderRadius:'16px', padding:'18px',
@@ -1439,18 +1430,18 @@ if(searchBox){
         color:'#e2e8f0', boxShadow:'0 20px 60px rgba(0,0,0,0.5)'
     });
     el.innerHTML =
-        '<img id="popupPhoto" src="default.png" onerror="this.src=\'default.png\'" style="width:100px;height:100px;border-radius:10px;object-fit:cover;object-position:top;display:block;margin:0 auto 10px;border:2px solid rgba(255,255,255,0.1);">' +
-        '<div id="popupName"     style="font-size:14px;font-weight:bold;margin-bottom:3px;"></div>' +
-        '<div id="popupPosition" style="font-size:12px;margin-bottom:6px;opacity:0.7;"></div>' +
-        '<div id="popupDept"     style="display:inline-block;font-size:11px;padding:2px 10px;border-radius:999px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);margin-bottom:10px;"></div>' +
+        '<img id="pp_photo" src="default.png" onerror="this.src=\'default.png\'" style="width:100px;height:100px;border-radius:10px;object-fit:cover;object-position:top;display:block;margin:0 auto 10px;border:2px solid rgba(255,255,255,0.1);">' +
+        '<div id="pp_name"     style="font-size:14px;font-weight:bold;margin-bottom:3px;"></div>' +
+        '<div id="pp_position" style="font-size:12px;margin-bottom:6px;opacity:0.7;"></div>' +
+        '<div id="pp_dept"     style="display:inline-block;font-size:11px;padding:2px 10px;border-radius:999px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);margin-bottom:10px;"></div>' +
         '<div style="height:1px;background:rgba(255,255,255,0.1);margin:10px 0;"></div>' +
-        '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;"><span style="opacity:0.55;">Employee ID</span><span id="popupEmpId" style="font-weight:bold;"></span></div>' +
-        '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;"><span style="opacity:0.55;">Biometric ID</span><span id="popupBioId" style="font-weight:bold;"></span></div>' +
-        '<div style="display:flex;justify-content:space-between;font-size:11px;"><span style="opacity:0.55;">RFID</span><span id="popupRfid" style="font-weight:bold;"></span></div>';
+        '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;"><span style="opacity:0.55;">Employee ID</span><span id="pp_empid" style="font-weight:bold;"></span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;"><span style="opacity:0.55;">Biometric ID</span><span id="pp_bioid" style="font-weight:bold;"></span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:11px;"><span style="opacity:0.55;">RFID</span><span id="pp_rfid" style="font-weight:bold;"></span></div>';
     document.body.appendChild(el);
-
-    let popupTimeout;
-
+ 
+    let t;
+ 
     function syncTheme(){
         const light = document.documentElement.classList.contains('light');
         el.style.background = light ? '#ffffff' : '#1e293b';
@@ -1458,31 +1449,31 @@ if(searchBox){
         el.style.color       = light ? '#0f172a' : '#e2e8f0';
         el.style.boxShadow   = light ? '0 20px 60px rgba(0,0,0,0.12)' : '0 20px 60px rgba(0,0,0,0.5)';
     }
-
-    function show(emp, x, y){
-        clearTimeout(popupTimeout);
+ 
+    function showEl(emp, x, y){
+        clearTimeout(t);
         syncTheme();
-        document.getElementById('popupPhoto').src          = emp.photo || 'default.png';
-        document.getElementById('popupName').innerText     = emp.name || '—';
-        document.getElementById('popupPosition').innerText = emp.position || '—';
-        document.getElementById('popupDept').innerText     = emp.dept_name || '—';
-        document.getElementById('popupEmpId').innerText    = emp.employee_id || '—';
-        document.getElementById('popupBioId').innerText    = emp.biometric_id || '—';
-        document.getElementById('popupRfid').innerText     = emp.rfid_uid || '—';
-        move(x, y);
+        document.getElementById('pp_photo').src    = emp.photo || 'default.png';
+        document.getElementById('pp_name').innerText     = emp.name || '—';
+        document.getElementById('pp_position').innerText = emp.position || '—';
+        document.getElementById('pp_dept').innerText     = emp.dept_name || '—';
+        document.getElementById('pp_empid').innerText    = emp.employee_id || '—';
+        document.getElementById('pp_bioid').innerText    = emp.biometric_id || '—';
+        document.getElementById('pp_rfid').innerText     = emp.rfid_uid || '—';
+        moveEl(x, y);
         el.style.opacity   = '1';
         el.style.transform = 'scale(1) translateY(0)';
     }
-
-    function hide(){
-        popupTimeout = setTimeout(()=>{
+ 
+    function hideEl(){
+        t = setTimeout(()=>{
             el.style.opacity   = '0';
             el.style.transform = 'scale(0.95) translateY(6px)';
         }, 100);
     }
-
-    function move(x, y){
-        const margin=16, pw=250, ph=330;
+ 
+    function moveEl(x, y){
+        const margin = 16, pw = 250, ph = 340;
         let lx = x + margin;
         let ly = y + margin;
         if(lx + pw > window.innerWidth)  lx = x - pw - margin;
@@ -1490,37 +1481,35 @@ if(searchBox){
         el.style.left = lx + 'px';
         el.style.top  = ly + 'px';
     }
-
-    // Event delegation on document — catches all .emp-row rows
+ 
+    // Event delegation — one listener handles all rows
     document.addEventListener('mouseover', function(e){
         const row = e.target.closest('.emp-row[data-emp]');
         if(!row) return;
-        try {
+        try{
             const emp = JSON.parse(row.dataset.emp);
-            show(emp, e.clientX, e.clientY);
-        } catch(err){ console.error('Popup parse error:', err); }
+            showEl(emp, e.clientX, e.clientY);
+        } catch(err){ console.warn('Popup parse error:', err, row.dataset.emp); }
     });
-
+ 
     document.addEventListener('mouseout', function(e){
         const row = e.target.closest('.emp-row[data-emp]');
-        if(!row) return;
-        // Only hide if leaving the row entirely
-        if(!row.contains(e.relatedTarget)) hide();
+        if(row && !row.contains(e.relatedTarget)) hideEl();
     });
-
+ 
     document.addEventListener('mousemove', function(e){
-        if(el.style.opacity === '1'){
+        if(parseFloat(el.style.opacity) > 0){
             const row = e.target.closest('.emp-row[data-emp]');
-            if(row) move(e.clientX, e.clientY);
+            if(row) moveEl(e.clientX, e.clientY);
         }
     });
 })();
-
-// Stubs so any leftover inline calls don't throw errors
+ 
+// Stubs — prevent errors if old inline calls remain
 function showPopup(){}
 function hidePopup(){}
 function movePopup(){}
-
+ 
 // ── RFID scanner: Enter → next field ──
 document.querySelectorAll('input[name="rfid_uid"]').forEach(function(rfidInput){
     rfidInput.addEventListener('keydown', function(e){
@@ -1533,14 +1522,14 @@ document.querySelectorAll('input[name="rfid_uid"]').forEach(function(rfidInput){
         }
     });
 });
-
+ 
 // ── Dashboard: Recent activity feed (admin actions) ──
 const actionStyles = {
     added:   { icon: '&#10133;', color: '#22c55e', bg: 'rgba(34,197,94,0.12)',  border: 'rgba(34,197,94,0.25)'  },
     edited:  { icon: '&#9998;',  color: '#38bdf8', bg: 'rgba(56,189,248,0.12)', border: 'rgba(56,189,248,0.25)' },
     deleted: { icon: '&#128465;',color: '#ef4444', bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.25)'  },
 };
-
+ 
 function loadRecentFeed(){
     const feed = document.getElementById('recentFeed');
     if(!feed) return;
@@ -1585,34 +1574,34 @@ function loadRecentFeed(){
 }
 loadRecentFeed();
 setInterval(loadRecentFeed, 5000);
-
+ 
 // ── Attendance log filter ──
 let allAtt = [];
-
+ 
 function loadAttendance(){
     fetch('fetch_all.php')
     .then(r=>r.json())
     .then(rows=>{ allAtt=rows; renderAtt(); });
 }
-
+ 
 function renderAtt(){
     const search = (document.getElementById('attSearch')?.value||'').toLowerCase();
     const status = document.getElementById('attStatus')?.value||'';
     const date   = document.getElementById('attDate')?.value||'';
-
+ 
     const filtered = allAtt.filter(r=>{
         const ms = !search || (r.name||'').toLowerCase().includes(search) || (r.position||'').toLowerCase().includes(search) || (r.department||'').toLowerCase().includes(search);
         const mv = !status || r.status===status;
         const md = !date   || r.time.startsWith(date);
         return ms && mv && md;
     });
-
+ 
     const body  = document.getElementById('attBody');
     const count = document.getElementById('attCount');
     if(!body) return;
-
+ 
     if(filtered.length===0){ body.innerHTML='<tr><td colspan="6" style="text-align:center;padding:32px;color:#475569;">No records found.</td></tr>'; count.innerText=''; return; }
-
+ 
     count.innerText = `Showing ${filtered.length} of ${allAtt.length} records`;
     let html='';
     filtered.forEach(r=>{
@@ -1633,41 +1622,39 @@ function renderAtt(){
     });
     body.innerHTML=html;
 }
-
+ 
 function clearAttFilters(){
     const s=document.getElementById('attSearch'); if(s) s.value='';
     const v=document.getElementById('attStatus'); if(v) v.value='';
     const d=document.getElementById('attDate');   if(d) d.value='';
     renderAtt();
 }
-
+ 
 function exportAttendance(){
     const date   = document.getElementById('attDate')?.value   || '';
     const status = document.getElementById('attStatus')?.value || '';
     const search = document.getElementById('attSearch')?.value || '';
-
+ 
     if(!date){
         alert('Please select a date to export.');
         return;
     }
-
+ 
     // Build export URL with current filters
     const params = new URLSearchParams({ date, status, search });
     window.open('export_attendance.php?' + params.toString(), '_blank');
 }
-
-['attSearch'].forEach(id=>{
+ 
+['attSearch','attStatus','attDate'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.addEventListener('input', renderAtt);
 });
-['attStatus','attDate'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el) el.addEventListener('change', renderAtt);
-});
-
+ 
 loadAttendance();
 setInterval(loadAttendance, 5000);
-
+</script>
+ 
+<script>
 // ── Open Reset Password modal ──
 function openResetPw(id, name){
     document.getElementById('rp_id').value       = id;
@@ -1675,7 +1662,7 @@ function openResetPw(id, name){
     document.getElementById('rp_password').value = '';
     new bootstrap.Modal(document.getElementById('resetPwModal')).show();
 }
-
+ 
 // ── Admin user search ──
 const auSearch = document.getElementById('auSearch');
 if(auSearch){
@@ -1686,7 +1673,7 @@ if(auSearch){
         });
     });
 }
-
+ 
 // ── Add Admin: password strength meter ──
 const auPwInput = document.getElementById('au_password');
 if(auPwInput){
@@ -1712,7 +1699,7 @@ if(auPwInput){
         if(lbl){ lbl.style.color = l.bg; lbl.innerText = l.t; }
     });
 }
-
+ 
 // ── Clear Add Admin modal on close ──
 const addAdminModal = document.getElementById('addAdminModal');
 if(addAdminModal){
@@ -1724,19 +1711,30 @@ if(addAdminModal){
         if(lbl){ lbl.innerText=''; }
     });
 }
-
+</script>
+ 
+<script>
 // ── Department: open edit modal ──
 function openEditDept(id, name, logo){
     document.getElementById('edit_dept_id').value   = id;
     document.getElementById('edit_dept_name').value = name;
-    document.getElementById('edit_dept_logo').value = logo;
+    document.getElementById('edit_dept_logo').value = logo || '';
     const wrap = document.getElementById('editLogoPreviewWrap');
     const img  = document.getElementById('editLogoPreview');
     if(logo){ img.src = logo; wrap.style.display = 'block'; }
-    else     { wrap.style.display = 'none'; }
-    new bootstrap.Modal(document.getElementById('editDeptModal')).show();
+    else { if(wrap) wrap.style.display = 'none'; }
+    const modalEl = document.getElementById('editDeptModal');
+    if(modalEl) new bootstrap.Modal(modalEl).show();
 }
-
+ 
+// Called from button data attributes — avoids quote issues in onclick
+function openEditDeptFromBtn(btn){
+    const id   = btn.dataset.deptId;
+    const name = btn.dataset.deptName;
+    const logo = btn.dataset.deptLogo;
+    openEditDept(id, name, logo);
+}
+ 
 // ── Department: live logo preview (add modal) ──
 document.addEventListener('DOMContentLoaded', function(){
     // Add dept logo preview
@@ -1753,7 +1751,7 @@ document.addEventListener('DOMContentLoaded', function(){
             }
         });
     }
-
+ 
     // Edit dept logo preview
     const editLogo = document.getElementById('edit_dept_logo');
     if(editLogo){
@@ -1768,7 +1766,7 @@ document.addEventListener('DOMContentLoaded', function(){
             }
         });
     }
-
+ 
     // Dept table search
     const deptSearch = document.getElementById('deptSearch');
     if(deptSearch){
@@ -1779,7 +1777,7 @@ document.addEventListener('DOMContentLoaded', function(){
             });
         });
     }
-
+ 
     // Clear add dept modal on close
     const addDeptModal = document.getElementById('addDeptModal');
     if(addDeptModal){
@@ -1790,5 +1788,5 @@ document.addEventListener('DOMContentLoaded', function(){
     }
 });
 </script>
-
+ 
 <?php include 'includes/footer.php'; ?>
