@@ -1,12 +1,18 @@
 <?php
-session_start();
-include 'db.php';
-include 'includes/auth.php';
-include 'includes/functions.php';
+require_once 'includes/auth.php';
+require_once 'db.php';
+require_once 'includes/functions.php';
 
 require_admin();
 
-$id = (int)($_GET['id'] ?? 0);
+if($_SERVER['REQUEST_METHOD'] !== 'POST'){
+    header("Location: admin.php?page=employees&msg=error");
+    exit;
+}
+
+require_csrf();
+
+$id = (int)($_POST['id'] ?? 0);
 if($id <= 0){
     header("Location: admin.php?page=employees&msg=error");
     exit;

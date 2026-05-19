@@ -10,18 +10,37 @@ $today    = date('Y-m-d');
 $sel_date = isset($_GET['date']) ? $_GET['date'] : $today;
 $sel_dept = isset($_GET['dept']) ? (int)$_GET['dept'] : 0;
 
+$dt = DateTime::createFromFormat('Y-m-d', $sel_date);
+if(!$dt || $dt->format('Y-m-d') !== $sel_date){
+    $sel_date = $today;
+}
+
+function bind_stmt_params($stmt, $types, &$params){
+    $refs = [$types];
+    foreach($params as $key => $value){
+        $refs[] = &$params[$key];
+    }
+    return call_user_func_array([$stmt, 'bind_param'], $refs);
+}
+
 // ── Fetch departments for filter ──
 $depts = [];
 $dr = $conn->query("SELECT id, name FROM departments ORDER BY name");
 while($d = $dr->fetch_assoc()) $depts[] = $d;
 
 // ── Build WHERE clause ──
-$where = ["DATE(attendance.time) = '" . $conn->real_escape_string($sel_date) . "'"];
-if($sel_dept > 0) $where[] = "users.department_id = $sel_dept";
+$where  = ["DATE(attendance.time) = ?"];
+$types  = "s";
+$params = [$sel_date];
+if($sel_dept > 0){
+    $where[] = "users.department_id = ?";
+    $types .= "i";
+    $params[] = $sel_dept;
+}
 $where_sql = implode(' AND ', $where);
 
 // ── Summary query: first IN and last OUT per employee ──
-$result = $conn->query("
+$stmt = $conn->prepare("
     SELECT
         users.id,
         users.employee_id,
@@ -42,6 +61,9 @@ $result = $conn->query("
              users.position, users.photo, departments.name
     ORDER BY users.surname, users.first_name
 ");
+bind_stmt_params($stmt, $types, $params);
+$stmt->execute();
+$result = $stmt->get_result();
 
 // ── Catch query errors ──
 if(!$result){

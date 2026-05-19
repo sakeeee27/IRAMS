@@ -1,11 +1,14 @@
 <?php
-$conn = new mysqli("localhost", "root", "", "rfid_attendance2");
+require_once 'includes/auth.php';
+require_once 'db.php';
+
+require_admin();
 
 $result = $conn->query("
-SELECT users.name, attendance.time, attendance.status 
-FROM attendance
-JOIN users ON users.id = attendance.user_id
-ORDER BY attendance.time DESC
+    SELECT users.name, attendance.time, attendance.status
+    FROM attendance
+    JOIN users ON users.id = attendance.user_id
+    ORDER BY attendance.time DESC
 ");
 ?>
 
@@ -18,9 +21,9 @@ ORDER BY attendance.time DESC
 
 <?php while($row = $result->fetch_assoc()) { ?>
 <tr>
-    <td><?php echo $row['name']; ?></td>
-    <td><?php echo $row['time']; ?></td>
-    <td><?php echo $row['status']; ?></td>
+    <td><?= htmlspecialchars($row['name'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
+    <td><?= htmlspecialchars($row['time'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
+    <td><?= htmlspecialchars($row['status'] ?? '', ENT_QUOTES, 'UTF-8') ?></td>
 </tr>
 <?php } ?>
 

@@ -1,5 +1,8 @@
 <?php
-include 'db.php';
+require_once 'includes/auth.php';
+require_once 'db.php';
+
+require_admin();
 
 header('Content-Type: application/json');
 

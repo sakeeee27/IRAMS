@@ -1,15 +1,16 @@
 <?php
-session_start();
-if(!isset($_SESSION['admin_id'])){
-    header("Location: login.php");
-    exit;
-}
-include 'db.php';
+require_once 'includes/auth.php';
+require_once 'db.php';
+require_once 'includes/functions.php';
+
+require_admin();
 
 $success = '';
 $error   = '';
 
 if(isset($_POST['change_password'])) {
+    require_csrf();
+
     $current  = $_POST['current_password']  ?? '';
     $new_pw   = $_POST['new_password']       ?? '';
     $confirm  = $_POST['confirm_password']   ?? '';
@@ -39,9 +40,7 @@ if(isset($_POST['change_password'])) {
             $upd->execute();
             $upd->close();
 
-            // Log it in activity_log
-            $admin_n = $conn->real_escape_string($_SESSION['admin_name'] ?? $_SESSION['admin_user']);
-            $conn->query("INSERT INTO activity_log (action, emp_name, admin_name) VALUES ('edited','[Password Changed]','$admin_n')");
+            log_activity($conn, 'edited', '[Password Changed]', admin_name());
 
             $success = 'Password changed successfully.';
         }
@@ -180,6 +179,7 @@ include 'includes/header.php';
     <?php endif; ?>
 
     <form method="POST" id="pwForm" autocomplete="off">
+        <?= csrf_field() ?>
 
         <div class="form-group">
             <label class="form-label">Current Password</label>

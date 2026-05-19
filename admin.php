@@ -1,85 +1,112 @@
 <?php
-session_start();
-if(!isset($_SESSION['admin_id'])){
-    header("Location: login.php");
-    exit;
-}
-include 'db.php';
+require_once 'includes/auth.php';
+require_once 'db.php';
+require_once 'includes/functions.php';
+
+require_admin();
 
 $upload_dir = __DIR__ . '/uploads/';
 if(!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
 
 // ── REGISTER ──
 if(isset($_POST['save'])){
-    $rfid  = $conn->real_escape_string($_POST['rfid_uid']);
-    $check = $conn->query("SELECT id FROM users WHERE rfid_uid='$rfid'");
-    if($check->num_rows > 0){
+    require_csrf();
+
+    $rfid    = trim($_POST['rfid_uid'] ?? '');
+    $first   = trim($_POST['first_name'] ?? '');
+    $middle  = null_or($_POST['middle_name'] ?? '');
+    $surname = trim($_POST['surname'] ?? '');
+    $pos     = trim($_POST['position'] ?? '');
+    $dept    = (int)($_POST['department_id'] ?? 0);
+
+    if($rfid === '' || $first === '' || $surname === '' || $pos === '' || $dept <= 0){
+        header("Location: admin.php?page=employees&msg=error"); exit;
+    }
+
+    if(rfid_exists($conn, $rfid)){
         header("Location: admin.php?page=employees&msg=duplicate"); exit;
     }
-    $f        = $_FILES['photo'];
-    $filename = time()."_".$f['name'];
-    $path     = "uploads/".$filename;
-    move_uploaded_file($f['tmp_name'], __DIR__."/".$path);
 
-    $emp_id  = !empty($_POST['employee_id'])  ? "'".$conn->real_escape_string($_POST['employee_id'])."'"  : "NULL";
-    $bio_id  = !empty($_POST['biometric_id']) ? "'".$conn->real_escape_string($_POST['biometric_id'])."'" : "NULL";
-    $mid     = !empty($_POST['middle_name'])  ? "'".$conn->real_escape_string($_POST['middle_name'])."'"  : "NULL";
-    $first   = $conn->real_escape_string($_POST['first_name']);
-    $surname = $conn->real_escape_string($_POST['surname']);
-    $fname   = trim("$first" . ($_POST['middle_name'] ? " {$_POST['middle_name']}" : "") . " $surname");
-    $fname   = $conn->real_escape_string($fname);
-    $pos     = $conn->real_escape_string($_POST['position']);
-    $dept    = $conn->real_escape_string($_POST['department_id']);
+    $upload_error = null;
+    $path = handle_photo_upload($_FILES['photo'] ?? null, 'uploads/', $upload_error);
+    if(!$path){
+        header("Location: admin.php?page=employees&msg=" . ($upload_error ?: 'upload_error')); exit;
+    }
 
-    $conn->query("INSERT INTO users (rfid_uid,employee_id,biometric_id,first_name,middle_name,surname,name,position,department_id,photo)
-        VALUES ('$rfid',$emp_id,$bio_id,'$first',$mid,'$surname','$fname','$pos','$dept','$path')");
+    $fname = build_full_name($first, $middle, $surname);
+    insert_employee($conn, [
+        'rfid_uid'      => $rfid,
+        'employee_id'   => null_or($_POST['employee_id'] ?? ''),
+        'biometric_id'  => null_or($_POST['biometric_id'] ?? ''),
+        'first_name'    => $first,
+        'middle_name'   => $middle,
+        'surname'       => $surname,
+        'name'          => $fname,
+        'position'      => $pos,
+        'department_id' => $dept,
+        'photo'         => $path,
+    ]);
 
-    // Log activity
-    $admin_n = $conn->real_escape_string($_SESSION['admin_name'] ?? $_SESSION['admin_user']);
-    $conn->query("INSERT INTO activity_log (action, emp_name, admin_name) VALUES ('added','$fname','$admin_n')");
+    log_activity($conn, 'added', $fname, admin_name());
 
     header("Location: admin.php?page=employees&msg=registered"); exit;
 }
 
 // ── UPDATE ──
 if(isset($_POST['update'])){
-    $id      = $conn->real_escape_string($_POST['id']);
-    $rfid    = !empty($_POST['rfid_uid'])      ? "'".$conn->real_escape_string($_POST['rfid_uid'])."'"      : "NULL";
-    $emp_id  = !empty($_POST['employee_id'])   ? "'".$conn->real_escape_string($_POST['employee_id'])."'"   : "NULL";
-    $bio_id  = !empty($_POST['biometric_id'])  ? "'".$conn->real_escape_string($_POST['biometric_id'])."'"  : "NULL";
-    $mid     = !empty($_POST['middle_name'])   ? "'".$conn->real_escape_string($_POST['middle_name'])."'"   : "NULL";
-    $first   = $conn->real_escape_string($_POST['first_name']);
-    $surname = $conn->real_escape_string($_POST['surname']);
-    $fname   = trim("$first" . ($_POST['middle_name'] ? " {$_POST['middle_name']}" : "") . " $surname");
-    $fname   = $conn->real_escape_string($fname);
-    $pos     = $conn->real_escape_string($_POST['position']);
-    $dept    = $conn->real_escape_string($_POST['department_id']);
+    require_csrf();
 
-    if(!empty($_FILES['photo']['name'])){
-        $f = $_FILES['photo'];
-        $fn = time()."_".$f['name'];
-        $p  = "uploads/".$fn;
-        move_uploaded_file($f['tmp_name'], __DIR__."/".$p);
-        $conn->query("UPDATE users SET rfid_uid=$rfid,employee_id=$emp_id,biometric_id=$bio_id,
-            first_name='$first',middle_name=$mid,surname='$surname',name='$fname',
-            position='$pos',department_id='$dept',photo='$p' WHERE id='$id'");
-    } else {
-        $conn->query("UPDATE users SET rfid_uid=$rfid,employee_id=$emp_id,biometric_id=$bio_id,
-            first_name='$first',middle_name=$mid,surname='$surname',name='$fname',
-            position='$pos',department_id='$dept' WHERE id='$id'");
+    $id      = (int)($_POST['id'] ?? 0);
+    $rfid    = null_or($_POST['rfid_uid'] ?? '');
+    $first   = trim($_POST['first_name'] ?? '');
+    $middle  = null_or($_POST['middle_name'] ?? '');
+    $surname = trim($_POST['surname'] ?? '');
+    $pos     = trim($_POST['position'] ?? '');
+    $dept    = (int)($_POST['department_id'] ?? 0);
+
+    if($id <= 0 || $first === '' || $surname === '' || $pos === '' || $dept <= 0){
+        header("Location: admin.php?page=employees&msg=error"); exit;
     }
 
-    // Log activity
-    $admin_n = $conn->real_escape_string($_SESSION['admin_name'] ?? $_SESSION['admin_user']);
-    $conn->query("INSERT INTO activity_log (action, emp_name, admin_name) VALUES ('edited','$fname','$admin_n')");
+    if($rfid !== null && rfid_exists($conn, $rfid, $id)){
+        header("Location: admin.php?page=employees&msg=duplicate"); exit;
+    }
+
+    $photo = null;
+    if(!empty($_FILES['photo']['name'])){
+        $upload_error = null;
+        $photo = handle_photo_upload($_FILES['photo'], 'uploads/', $upload_error);
+        if(!$photo){
+            header("Location: admin.php?page=employees&msg=" . ($upload_error ?: 'upload_error')); exit;
+        }
+    }
+
+    $fname = build_full_name($first, $middle, $surname);
+    update_employee($conn, [
+        'id'            => $id,
+        'rfid_uid'      => $rfid,
+        'employee_id'   => null_or($_POST['employee_id'] ?? ''),
+        'biometric_id'  => null_or($_POST['biometric_id'] ?? ''),
+        'first_name'    => $first,
+        'middle_name'   => $middle,
+        'surname'       => $surname,
+        'name'          => $fname,
+        'position'      => $pos,
+        'department_id' => $dept,
+        'photo'         => $photo,
+    ]);
+
+    log_activity($conn, 'edited', $fname, admin_name());
 
     header("Location: admin.php?page=employees&msg=updated"); exit;
 }
 
 // ── ADD DEPARTMENT ──
 if(isset($_POST['add_dept'])){
-    $dn   = trim($conn->real_escape_string($_POST['dept_name'] ?? ''));
-    $logo = trim($conn->real_escape_string($_POST['dept_logo'] ?? ''));
+    require_csrf();
+
+    $dn   = trim($_POST['dept_name'] ?? '');
+    $logo = trim($_POST['dept_logo'] ?? '');
     if($dn){
         $chk = $conn->prepare("SELECT id FROM departments WHERE name=? LIMIT 1");
         $chk->bind_param("s", $dn); $chk->execute(); $chk->store_result();
@@ -88,43 +115,61 @@ if(isset($_POST['add_dept'])){
             header("Location: admin.php?page=departments&msg=dept_dup"); exit;
         }
         $chk->close();
-        $conn->query("INSERT INTO departments (name, logo) VALUES ('$dn','$logo')");
+        $stmt = $conn->prepare("INSERT INTO departments (name, logo) VALUES (?, ?)");
+        $stmt->bind_param("ss", $dn, $logo);
+        $stmt->execute();
+        $stmt->close();
     }
     header("Location: admin.php?page=departments&msg=dept_added"); exit;
 }
 
 // ── EDIT DEPARTMENT ──
 if(isset($_POST['edit_dept'])){
+    require_csrf();
+
     $did  = (int)$_POST['dept_id'];
-    $dn   = trim($conn->real_escape_string($_POST['dept_name'] ?? ''));
-    $logo = trim($conn->real_escape_string($_POST['dept_logo'] ?? ''));
+    $dn   = trim($_POST['dept_name'] ?? '');
+    $logo = trim($_POST['dept_logo'] ?? '');
     if($did && $dn){
-        $conn->query("UPDATE departments SET name='$dn', logo='$logo' WHERE id=$did");
+        $stmt = $conn->prepare("UPDATE departments SET name=?, logo=? WHERE id=?");
+        $stmt->bind_param("ssi", $dn, $logo, $did);
+        $stmt->execute();
+        $stmt->close();
     }
     header("Location: admin.php?page=departments&msg=dept_updated"); exit;
 }
 
 // ── DELETE DEPARTMENT ──
-if(isset($_GET['delete_dept'])){
-    $did = (int)$_GET['delete_dept'];
+if(isset($_POST['delete_dept'])){
+    require_csrf();
+
+    $did = (int)$_POST['delete_dept'];
     if($did > 0){
         // Prevent delete if employees are assigned
-        $chk = $conn->query("SELECT COUNT(*) c FROM users WHERE department_id=$did");
-        $cnt = $chk->fetch_assoc()['c'];
+        $chk = $conn->prepare("SELECT COUNT(*) c FROM users WHERE department_id=?");
+        $chk->bind_param("i", $did);
+        $chk->execute();
+        $cnt = $chk->get_result()->fetch_assoc()['c'];
+        $chk->close();
         if($cnt > 0){
             header("Location: admin.php?page=departments&msg=dept_has_emp"); exit;
         }
-        $conn->query("DELETE FROM departments WHERE id=$did");
+        $stmt = $conn->prepare("DELETE FROM departments WHERE id=?");
+        $stmt->bind_param("i", $did);
+        $stmt->execute();
+        $stmt->close();
     }
     header("Location: admin.php?page=departments&msg=dept_deleted"); exit;
 }
 
 // ── ADD ADMIN USER ──
 if(isset($_POST['add_admin'])){
+    require_csrf();
+
     $au_user = trim($_POST['au_username'] ?? '');
     $au_name = trim($_POST['au_fullname'] ?? '');
     $au_pass = $_POST['au_password'] ?? '';
-    if($au_user && $au_name && strlen($au_pass) >= 6){
+    if($au_user && $au_name && strlen($au_pass) >= 6 && preg_match('/^[a-zA-Z0-9_]+$/', $au_user)){
         $chk = $conn->prepare("SELECT id FROM admin_users WHERE username=? LIMIT 1");
         $chk->bind_param("s", $au_user); $chk->execute(); $chk->store_result();
         if($chk->num_rows > 0){ $chk->close();
@@ -140,8 +185,10 @@ if(isset($_POST['add_admin'])){
 }
 
 // ── DELETE ADMIN USER ──
-if(isset($_GET['delete_admin'])){
-    $del_id = (int)$_GET['delete_admin'];
+if(isset($_POST['delete_admin'])){
+    require_csrf();
+
+    $del_id = (int)$_POST['delete_admin'];
     if($del_id > 0 && $del_id !== (int)$_SESSION['admin_id']){
         $stmt = $conn->prepare("DELETE FROM admin_users WHERE id=?");
         $stmt->bind_param("i", $del_id); $stmt->execute(); $stmt->close();
@@ -151,6 +198,8 @@ if(isset($_GET['delete_admin'])){
 
 // ── RESET ADMIN PASSWORD ──
 if(isset($_POST['reset_admin_pw'])){
+    require_csrf();
+
     $rp_id   = (int)($_POST['rp_id'] ?? 0);
     $rp_pass = $_POST['rp_password'] ?? '';
     if($rp_id > 0 && strlen($rp_pass) >= 6){
@@ -682,6 +731,10 @@ $alerts = [
     'updated'    => ['info',    '&#10003; Employee updated successfully.'],
     'deleted'    => ['warning', '&#10003; Employee deleted.'],
     'duplicate'  => ['danger',  '&#9888; RFID already registered.'],
+    'error'      => ['danger',  '&#9888; Please check the submitted fields.'],
+    'upload_error'     => ['danger', '&#9888; Photo upload failed. Please try again.'],
+    'upload_too_large' => ['danger', '&#9888; Photo must be 5 MB or smaller.'],
+    'invalid_file'     => ['danger', '&#9888; Photo must be a valid JPG, PNG, GIF, or WEBP image.'],
     'au_added'   => ['success', '&#10003; Admin account created successfully.'],
     'au_deleted' => ['warning', '&#10003; Admin account deleted.'],
     'au_reset'   => ['info',    '&#10003; Password has been reset.'],
@@ -821,8 +874,12 @@ if(isset($_GET['msg']) && isset($alerts[$_GET['msg']])):
             <td><?= htmlspecialchars($row['position'] ?? '—') ?></td>
             <td><?= htmlspecialchars($row['dept_name'] ?? '—') ?></td>
             <td>
-                <button class="btn btn-primary btn-sm" style="width:60px" onclick='editUser(<?= json_encode($row) ?>)'>Edit</button>
-                <a href="delete.php?id=<?= $row['id'] ?>" class="btn btn-danger btn-sm" style="width:60px" onclick="return confirm('Delete this employee?')">Delete</a>
+                <button class="btn btn-primary btn-sm" style="width:60px" onclick='editUser(<?= htmlspecialchars(json_encode($row), ENT_QUOTES, 'UTF-8') ?>)'>Edit</button>
+                <form method="POST" action="delete.php" style="display:inline;" onsubmit="return confirm('Delete this employee?')">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                    <button type="submit" class="btn btn-danger btn-sm" style="width:60px">Delete</button>
+                </form>
             </td>
         </tr>
         <?php endwhile; ?>
@@ -973,11 +1030,12 @@ $emp_total  = $conn->query("SELECT COUNT(*) c FROM users")->fetch_assoc()['c'];
                     &#9998; Edit
                 </button>
                 <?php if($dept['emp_count'] == 0): ?>
-                <a href="admin.php?page=departments&delete_dept=<?= $dept['id'] ?>"
-                   class="btn btn-danger btn-sm" style="font-size:11px;"
-                   onclick="return confirm('Delete department '<?= htmlspecialchars($dept['name'], ENT_QUOTES) ?>'?')">
-                    &#128465; Delete
-                </a>
+                <form method="POST" action="admin.php?page=departments" style="display:inline;"
+                      onsubmit="return confirm(<?= htmlspecialchars(json_encode('Delete department ' . $dept['name'] . '?'), ENT_QUOTES, 'UTF-8') ?>)">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="delete_dept" value="<?= (int)$dept['id'] ?>">
+                    <button type="submit" class="btn btn-danger btn-sm" style="font-size:11px;">&#128465; Delete</button>
+                </form>
                 <?php else: ?>
                 <button class="btn btn-secondary btn-sm" style="font-size:11px;" disabled
                     title="Cannot delete — has <?= $dept['emp_count'] ?> employee(s)">
@@ -1083,15 +1141,16 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
             </td>
             <td>
                 <button class="btn btn-warning btn-sm me-1" style="font-size:11px;"
-                    onclick="openResetPw(<?= $au['id'] ?>, <?= json_encode($au['full_name'] ?? $au['username']) ?>)">
+                    onclick="openResetPw(<?= (int)$au['id'] ?>, <?= htmlspecialchars(json_encode($au['full_name'] ?? $au['username']), ENT_QUOTES, 'UTF-8') ?>)">
                     &#128274; Reset PW
                 </button>
                 <?php if(!$is_me): ?>
-                <a href="admin.php?page=admin_users&delete_admin=<?= $au['id'] ?>"
-                   class="btn btn-danger btn-sm" style="font-size:11px;"
-                   onclick="return confirm('Delete <?= htmlspecialchars(addslashes($au['full_name'] ?? $au['username'])) ?>? This cannot be undone.')">
-                    &#128465; Delete
-                </a>
+                <form method="POST" action="admin.php?page=admin_users" style="display:inline;"
+                      onsubmit="return confirm(<?= htmlspecialchars(json_encode('Delete ' . ($au['full_name'] ?? $au['username']) . '? This cannot be undone.'), ENT_QUOTES, 'UTF-8') ?>)">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="delete_admin" value="<?= (int)$au['id'] ?>">
+                    <button type="submit" class="btn btn-danger btn-sm" style="font-size:11px;">&#128465; Delete</button>
+                </form>
                 <?php else: ?>
                 <button class="btn btn-secondary btn-sm" style="font-size:11px;" disabled
                     title="You cannot delete your own account">&#128465; Delete</button>
@@ -1116,6 +1175,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 <div class="modal-dialog modal-lg">
 <div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
 <form method="POST" enctype="multipart/form-data">
+<?= csrf_field() ?>
 <div class="modal-header" style="border-color:#334155;">
     <h5 class="modal-title">Register Employee</h5>
     <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1132,7 +1192,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
     <div class="col-md-6"><div class="form-floating">
         <select class="form-select bg-dark text-white border-secondary" name="department_id" required>
             <option value="">Select Department</option>
-            <?php $d=$conn->query("SELECT * FROM departments"); while($dr=$d->fetch_assoc()) echo "<option value='{$dr['id']}'>{$dr['name']}</option>"; ?>
+            <?php $d=$conn->query("SELECT * FROM departments"); while($dr=$d->fetch_assoc()) echo '<option value="' . (int)$dr['id'] . '">' . htmlspecialchars($dr['name'], ENT_QUOTES, 'UTF-8') . '</option>'; ?>
         </select><label>Department *</label>
     </div></div>
     <div class="col-12"><label class="form-label fw-bold">Photo *</label><input type="file" class="form-control bg-dark text-white border-secondary" name="photo" accept="image/*" required></div>
@@ -1151,6 +1211,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 <div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
 <form method="POST" enctype="multipart/form-data">
 <input type="hidden" name="id" id="edit_id">
+<?= csrf_field() ?>
 <div class="modal-header" style="border-color:#334155;">
     <h5 class="modal-title">Edit Employee</h5>
     <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1166,7 +1227,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
     <div class="col-md-6"><div class="form-floating"><input class="form-control bg-dark text-white border-secondary" name="position"    id="edit_position" placeholder="Position"><label>Position</label></div></div>
     <div class="col-md-6"><div class="form-floating">
         <select class="form-select bg-dark text-white border-secondary" name="department_id" id="edit_dept">
-            <?php $d=$conn->query("SELECT * FROM departments"); while($dr=$d->fetch_assoc()) echo "<option value='{$dr['id']}'>{$dr['name']}</option>"; ?>
+            <?php $d=$conn->query("SELECT * FROM departments"); while($dr=$d->fetch_assoc()) echo '<option value="' . (int)$dr['id'] . '">' . htmlspecialchars($dr['name'], ENT_QUOTES, 'UTF-8') . '</option>'; ?>
         </select><label>Department</label>
     </div></div>
     <div class="col-12"><label class="form-label fw-bold">Change Photo <small class="text-secondary">(leave blank to keep current)</small></label><input type="file" class="form-control bg-dark text-white border-secondary" name="photo" accept="image/*"></div>
@@ -1185,6 +1246,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 <div class="modal-dialog">
 <div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
 <form method="POST">
+<?= csrf_field() ?>
 <div class="modal-header" style="border-color:#334155;">
     <h5 class="modal-title">&#127970; Add Department</h5>
     <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1229,6 +1291,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 <div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
 <form method="POST">
 <input type="hidden" name="dept_id" id="edit_dept_id">
+<?= csrf_field() ?>
 <div class="modal-header" style="border-color:#334155;">
     <h5 class="modal-title">&#9998; Edit Department</h5>
     <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1271,6 +1334,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 <div class="modal-dialog">
 <div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
 <form method="POST">
+<?= csrf_field() ?>
 <div class="modal-header" style="border-color:#334155;">
     <h5 class="modal-title">&#128737; Add Admin Account</h5>
     <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1315,6 +1379,7 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
 <div class="modal-content" style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;">
 <form method="POST">
 <input type="hidden" name="rp_id" id="rp_id">
+<?= csrf_field() ?>
 <div class="modal-header" style="border-color:#334155;">
     <h5 class="modal-title">&#128274; Reset Password</h5>
     <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -1529,6 +1594,16 @@ const actionStyles = {
     edited:  { icon: '&#9998;',  color: '#38bdf8', bg: 'rgba(56,189,248,0.12)', border: 'rgba(56,189,248,0.25)' },
     deleted: { icon: '&#128465;',color: '#ef4444', bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.25)'  },
 };
+
+function escapeHtml(value){
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    }[ch]));
+}
  
 function loadRecentFeed(){
     const feed = document.getElementById('recentFeed');
@@ -1549,8 +1624,10 @@ function loadRecentFeed(){
         rows.forEach(r=>{
             const s    = actionStyles[r.action] || actionStyles.edited;
             const dt   = new Date(r.created_at.replace(' ','T'));
-            const time = isNaN(dt) ? r.created_at : dt.toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-            const verb = r.action.charAt(0).toUpperCase() + r.action.slice(1);
+            const time = escapeHtml(isNaN(dt) ? r.created_at : dt.toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+            const verb = escapeHtml((r.action || '').charAt(0).toUpperCase() + (r.action || '').slice(1));
+            const empName = escapeHtml(r.emp_name || '-');
+            const adminName = escapeHtml(r.admin_name || '-');
             html += `
             <div class="activity-item">
                 <div style="width:34px;height:34px;border-radius:50%;background:${s.bg};border:1px solid ${s.border};
@@ -1559,9 +1636,9 @@ function loadRecentFeed(){
                 </div>
                 <div style="flex:1;min-width:0;">
                     <div class="activity-name"><span style="color:${s.color};font-weight:bold;">${verb}</span>
-                        <span style="color:var(--text);font-weight:normal;"> ${r.emp_name}</span>
+                        <span style="color:var(--text);font-weight:normal;"> ${empName}</span>
                     </div>
-                    <div class="activity-time">by ${r.admin_name} &bull; ${time}</div>
+                    <div class="activity-time">by ${adminName} &bull; ${time}</div>
                 </div>
             </div>`;
         });
@@ -1605,6 +1682,14 @@ function renderAtt(){
     count.innerText = `Showing ${filtered.length} of ${allAtt.length} records`;
     let html='';
     filtered.forEach(r=>{
+        r = {
+            ...r,
+            name: escapeHtml(r.name || '-'),
+            position: escapeHtml(r.position || '-'),
+            department: escapeHtml(r.department || '-'),
+            photo: escapeHtml(r.photo || 'default.png'),
+            status: escapeHtml(r.status || '')
+        };
         const isIn = r.status==='IN';
         const dt   = new Date(r.time);
         const ds   = dt.toLocaleDateString('en-PH',{year:'numeric',month:'short',day:'numeric'});

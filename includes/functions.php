@@ -208,13 +208,52 @@ function null_or($value){
 /**
  * Handle file upload — returns relative path or null
  */
-function handle_photo_upload($file_input, $upload_dir = 'uploads/'){
-    if(empty($file_input['name'])) return null;
-    $filename = time() . '_' . basename($file_input['name']);
-    $dest     = __DIR__ . '/../' . $upload_dir . $filename;
+function handle_photo_upload($file_input, $upload_dir = 'uploads/', &$error = null){
+    $error = null;
+    if(empty($file_input) || !is_array($file_input) || empty($file_input['name'])){
+        return null;
+    }
+
+    if(($file_input['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK){
+        $error = 'upload_error';
+        return null;
+    }
+
+    if(($file_input['size'] ?? 0) > 5 * 1024 * 1024){
+        $error = 'upload_too_large';
+        return null;
+    }
+
+    $image_info = @getimagesize($file_input['tmp_name']);
+    $allowed = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+        'image/webp' => 'webp',
+    ];
+
+    if(!$image_info || empty($allowed[$image_info['mime']])){
+        $error = 'invalid_file';
+        return null;
+    }
+
+    $upload_dir = trim($upload_dir, "/\\") . '/';
+    $root       = realpath(__DIR__ . '/..');
+    $dest_dir   = $root . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, trim($upload_dir, "/\\"));
+
+    if(!is_dir($dest_dir) && !mkdir($dest_dir, 0755, true)){
+        $error = 'upload_error';
+        return null;
+    }
+
+    $filename = date('YmdHis') . '_' . bin2hex(random_bytes(8)) . '.' . $allowed[$image_info['mime']];
+    $dest     = $dest_dir . DIRECTORY_SEPARATOR . $filename;
+
     if(move_uploaded_file($file_input['tmp_name'], $dest)){
         return $upload_dir . $filename;
     }
+
+    $error = 'upload_error';
     return null;
 }
 
@@ -223,8 +262,18 @@ function handle_photo_upload($file_input, $upload_dir = 'uploads/'){
  */
 function delete_photo($photo_path){
     if($photo_path && $photo_path !== 'default.png'){
-        $full = __DIR__ . '/../' . $photo_path;
-        if(file_exists($full)) unlink($full);
+        $normalized = str_replace('\\', '/', $photo_path);
+        if(strpos($normalized, 'uploads/') !== 0) return;
+
+        $base = realpath(__DIR__ . '/../uploads');
+        $full = realpath(__DIR__ . '/../' . $normalized);
+        if(!$base || !$full) return;
+
+        $base_cmp = strtolower(rtrim($base, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR);
+        $full_cmp = strtolower($full);
+        if(strpos($full_cmp, $base_cmp) === 0 && is_file($full)){
+            unlink($full);
+        }
     }
 }
 ?>

@@ -1,15 +1,22 @@
 <?php
-include 'db.php';
+require_once 'includes/auth.php';
+require_once 'db.php';
+
+require_admin();
 
 // Optional department filter
 $dept = isset($_GET['dept']) ? (int)$_GET['dept'] : 0;
 
 $where = '';
+$types = '';
+$params = [];
 if($dept > 0) {
-    $where = "WHERE users.department_id = $dept";
+    $where = "WHERE users.department_id = ?";
+    $types = 'i';
+    $params[] = $dept;
 }
 
-$result = $conn->query("
+$stmt = $conn->prepare("
     SELECT
         users.name,
         users.position,
@@ -23,6 +30,11 @@ $result = $conn->query("
     $where
     ORDER BY attendance.time DESC
 ");
+if($types){
+    $stmt->bind_param($types, $params[0]);
+}
+$stmt->execute();
+$result = $stmt->get_result();
 
 $data = [];
 while($row = $result->fetch_assoc()){

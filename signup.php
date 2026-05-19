@@ -1,5 +1,6 @@
 <?php
 session_start();
+require_once 'includes/auth.php';
 
 // ── Redirect if already logged in ──
 if(isset($_SESSION['admin_id'])){
@@ -19,7 +20,9 @@ if(isset($_POST['signup'])){
     $password  = $_POST['password']         ?? '';
     $confirm   = $_POST['confirm_password'] ?? '';
 
-    if(empty($full_name) || empty($username) || empty($password) || empty($confirm)){
+    if(!validate_csrf_token($_POST['csrf_token'] ?? '')){
+        $error = 'Invalid security token. Please try again.';
+    } elseif(empty($full_name) || empty($username) || empty($password) || empty($confirm)){
         $error = 'All fields are required.';
     } elseif(strlen($username) < 4){
         $error = 'Username must be at least 4 characters.';
@@ -40,7 +43,7 @@ if(isset($_POST['signup'])){
             $error = 'Username already taken. Please choose another.';
         } else {
             $hashed = password_hash($password, PASSWORD_DEFAULT);
-            $ins = $conn->prepare("INSERT INTO admins (username, full_name, password) VALUES (?, ?, ?)");
+            $ins = $conn->prepare("INSERT INTO admin_users (username, full_name, password) VALUES (?, ?, ?)");
             $ins->bind_param("sss", $username, $full_name, $hashed);
             $ins->execute();
             $ins->close();
@@ -260,6 +263,7 @@ include 'includes/header.php';
 
         <?php if(empty($success)): ?>
         <form method="POST" id="signupForm">
+            <?= csrf_field() ?>
 
             <div class="form-group">
                 <label>Full Name</label>

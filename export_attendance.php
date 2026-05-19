@@ -1,33 +1,54 @@
 <?php
-session_start();
-if(!isset($_SESSION['admin_id'])){
-    header("Location: login.php");
-    exit;
-}
+require_once 'includes/auth.php';
+require_once 'db.php';
 
-include 'db.php';
+require_admin();
+
+function bind_stmt_params($stmt, $types, &$params){
+    $refs = [$types];
+    foreach($params as $key => $value){
+        $refs[] = &$params[$key];
+    }
+    return call_user_func_array([$stmt, 'bind_param'], $refs);
+}
 
 // Get filters from request
-$date   = isset($_GET['date'])   ? $_GET['date']   : date('Y-m-d');
-$status = isset($_GET['status']) ? $_GET['status'] : '';
-$search = isset($_GET['search']) ? $_GET['search'] : '';
-
-// Build query
-$where = ["DATE(attendance.time) = '$date'"];
-
-if(!empty($status)){
-    $s = $conn->real_escape_string($status);
-    $where[] = "attendance.status = '$s'";
+$date = $_GET['date'] ?? date('Y-m-d');
+$dt   = DateTime::createFromFormat('Y-m-d', $date);
+if(!$dt || $dt->format('Y-m-d') !== $date){
+    $date = date('Y-m-d');
 }
 
-if(!empty($search)){
-    $q = $conn->real_escape_string($search);
-    $where[] = "(users.name LIKE '%$q%' OR users.position LIKE '%$q%' OR departments.name LIKE '%$q%')";
+$status = $_GET['status'] ?? '';
+if(!in_array($status, ['IN', 'OUT'], true)){
+    $status = '';
+}
+
+$search = trim($_GET['search'] ?? '');
+
+// Build query
+$where  = ["DATE(attendance.time) = ?"];
+$types  = "s";
+$params = [$date];
+
+if($status !== ''){
+    $where[]  = "attendance.status = ?";
+    $types   .= "s";
+    $params[] = $status;
+}
+
+if($search !== ''){
+    $where[] = "(users.name LIKE ? OR users.position LIKE ? OR departments.name LIKE ?)";
+    $like = '%' . $search . '%';
+    $types .= "sss";
+    $params[] = $like;
+    $params[] = $like;
+    $params[] = $like;
 }
 
 $where_sql = implode(' AND ', $where);
 
-$result = $conn->query("
+$stmt = $conn->prepare("
     SELECT
         users.employee_id,
         users.biometric_id,
@@ -43,6 +64,9 @@ $result = $conn->query("
     WHERE $where_sql
     ORDER BY attendance.time ASC
 ");
+bind_stmt_params($stmt, $types, $params);
+$stmt->execute();
+$result = $stmt->get_result();
 
 // Format filename
 $filename = "Attendance_" . $date . ".xls";

@@ -488,6 +488,16 @@ include 'includes/header.php';
 // ── RFID scanner input ──
 const input = document.getElementById("rfid");
 
+function escapeHtml(value){
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    }[ch]));
+}
+
 input.addEventListener("input", function(){
     if(this.value.length >= 10){
         sendRFID(this.value);
@@ -500,7 +510,7 @@ function sendRFID(uid){
     fetch("process.php", {
         method: "POST",
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
-        body: "rfid_uid=" + uid
+        body: "rfid_uid=" + encodeURIComponent(uid)
     })
     .then(res => res.json())
     .then(data => {
@@ -592,14 +602,16 @@ function loadActivity(){
             const time = new Date(r.time.replace(' ','T')).toLocaleTimeString("en-PH", {
                 hour:"2-digit", minute:"2-digit", second:"2-digit"
             });
+            const safeName = escapeHtml(r.name || '');
+            const safeStatus = escapeHtml(r.status || '');
             html += `
             <div class="activity-item">
                 <div class="activity-dot ${isIn ? 'dot-in' : 'dot-out'}"></div>
                 <div class="activity-details">
-                    <div class="activity-name">${r.name}</div>
+                    <div class="activity-name">${safeName}</div>
                     <div class="activity-time">${time}</div>
                 </div>
-                <span class="activity-badge ${isIn ? 'badge-in' : 'badge-out'}">${r.status}</span>
+                <span class="activity-badge ${isIn ? 'badge-in' : 'badge-out'}">${safeStatus}</span>
             </div>`;
         });
         document.getElementById("activityFeed").innerHTML = html;

@@ -1,4 +1,7 @@
 <?php
+require_once 'includes/auth.php';
+require_admin();
+
 $page_title = "Attendance Logs";
 $page_type  = "public";
 $extra_css  = <<<'PAGECSS'
@@ -297,6 +300,16 @@ include 'includes/header.php';
 <script>
 let allRows = [];
 
+function escapeHtml(value){
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    }[ch]));
+}
+
 // Set today's date as default in date filter
 const today = new Date().toISOString().split('T')[0];
 document.getElementById('dateFilter').value = today;
@@ -356,8 +369,15 @@ function renderTable(){
 
     let html = "";
     filtered.forEach(r => {
+        r = {
+            ...r,
+            name: escapeHtml(r.name || '-'),
+            position: escapeHtml(r.position || '-'),
+            department: escapeHtml(r.department || '-'),
+            status: escapeHtml(r.status || '')
+        };
         const isIn   = r.status === "IN";
-        const photo  = r.photo ? r.photo : "default.png";
+        const photo  = escapeHtml(r.photo ? r.photo : "default.png");
         const dt     = new Date(r.time);
         const dateStr = dt.toLocaleDateString("en-PH", {
             year:"numeric", month:"short", day:"numeric"

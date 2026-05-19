@@ -499,6 +499,16 @@ include 'includes/header.php';
 // ── RFID scanner input ──
 const input = document.getElementById("rfid");
 
+function escapeHtml(value){
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    }[ch]));
+}
+
 input.addEventListener("input", function(){
     if(this.value.length >= 10){
         sendRFID(this.value);
@@ -512,7 +522,7 @@ function sendRFID(uid){
     fetch("process_display.php", {
         method: "POST",
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
-        body: "rfid_uid=" + uid
+        body: "rfid_uid=" + encodeURIComponent(uid)
     })
     .then(res => res.json())
     .then(data => {
@@ -555,6 +565,9 @@ function clearCard(){
 
 // ── MCN: show info card, no attendance ──
 function showDisplayOnly(name, position, department, photo, logo){
+    const safeName = escapeHtml(name);
+    const safeDepartment = escapeHtml(department);
+
     document.getElementById("name").innerText       = name;
     document.getElementById("position").innerText   = position;
     document.getElementById("department").innerText = department;
@@ -569,8 +582,8 @@ function showDisplayOnly(name, position, department, photo, logo){
     document.getElementById("verifyInfo").innerHTML =
         '<div style="font-size:44px;margin-bottom:12px;color:#38bdf8;">&#10003;</div>' +
         '<div style="font-size:15px;font-weight:bold;color:#38bdf8;margin-bottom:6px;">Identity Verified</div>' +
-        '<div style="font-size:13px;color:var(--text-muted);">' + name + '</div>' +
-        '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + department + '</div>' +
+        '<div style="font-size:13px;color:var(--text-muted);">' + safeName + '</div>' +
+        '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + safeDepartment + '</div>' +
         '<div style="font-size:11px;color:#64748b;margin-top:16px;">Proceed to the inside terminal<br>to record your attendance</div>';
 
     flashCard();
@@ -579,6 +592,9 @@ function showDisplayOnly(name, position, department, photo, logo){
 
 // ── Non-MCN: attendance recorded, show IN/OUT ──
 function showRecorded(name, position, department, log, photo, logo){
+    const safeName = escapeHtml(name);
+    const safeDepartment = escapeHtml(department);
+
     document.getElementById("name").innerText       = name;
     document.getElementById("position").innerText   = position;
     document.getElementById("department").innerText = department;
@@ -594,8 +610,8 @@ function showRecorded(name, position, department, log, photo, logo){
     document.getElementById("verifyInfo").innerHTML =
         '<div style="font-size:44px;margin-bottom:12px;">' + (isIn ? "&#128994;" : "&#128308;") + '</div>' +
         '<div style="font-size:15px;font-weight:bold;' + (isIn ? 'color:#22c55e;' : 'color:#ef4444;') + 'margin-bottom:6px;">Attendance Recorded</div>' +
-        '<div style="font-size:13px;color:var(--text-muted);">' + name + '</div>' +
-        '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + department + '</div>' +
+        '<div style="font-size:13px;color:var(--text-muted);">' + safeName + '</div>' +
+        '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + safeDepartment + '</div>' +
         '<div style="font-size:13px;font-weight:bold;margin-top:14px;' + (isIn ? 'color:#22c55e;' : 'color:#ef4444;') + '">' +
             (isIn ? '&#128338; Time IN recorded' : '&#128338; Time OUT recorded') +
         '</div>';
