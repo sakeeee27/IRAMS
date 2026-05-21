@@ -218,6 +218,105 @@ $today_att   = $conn->query("SELECT COUNT(*) c FROM attendance WHERE DATE(time)=
 $total_att   = $conn->query("SELECT COUNT(*) c FROM attendance")->fetch_assoc()['c'];
 
 $page = $_GET['page'] ?? 'dashboard';
+
+// ── SUMMARY REPORT: data + export (must run before HTML) ──
+$sr_rows         = [];
+$sr_total_hours  = 0;
+$sr_present_count= 0;
+$sr_depts        = [];
+$sr_sel_date = $today;   // ← safe default before the if block
+$sr_sel_dept = 0;        // ← safe default before the if block
+
+if($page === 'summary_report'){
+    $sr_sel_date = isset($_GET['date']) ? $_GET['date'] : $today;
+    $sr_sel_dept = isset($_GET['dept']) ? (int)$_GET['dept'] : 0;
+
+    $sr_dt = DateTime::createFromFormat('Y-m-d', $sr_sel_date);
+    if(!$sr_dt || $sr_dt->format('Y-m-d') !== $sr_sel_date) $sr_sel_date = $today;
+
+    $dr = $conn->query("SELECT id, name FROM departments ORDER BY name");
+    while($d = $dr->fetch_assoc()) $sr_depts[] = $d;
+
+    $sr_shift_start = $sr_sel_date . ' 07:00:00';
+    $sr_shift_end   = date('Y-m-d', strtotime($sr_sel_date . ' +1 day')) . ' 03:00:00';
+
+    $sr_where  = ["attendance.time >= ?", "attendance.time <= ?"];
+    $sr_types  = "ss";
+    $sr_params = [$sr_shift_start, $sr_shift_end];
+    if($sr_sel_dept > 0){ $sr_where[] = "users.department_id = ?"; $sr_types .= "i"; $sr_params[] = $sr_sel_dept; }
+    $sr_where_sql = implode(' AND ', $sr_where);
+
+    $stmt = $conn->prepare("
+        SELECT users.id, users.employee_id, users.name, users.surname, users.first_name,
+               users.position, users.photo, departments.name AS department,
+               MIN(CASE WHEN attendance.status='IN'  THEN attendance.time END) AS first_in,
+               MAX(CASE WHEN attendance.status='OUT' THEN attendance.time END) AS last_out,
+               COUNT(attendance.id) AS total_scans
+        FROM attendance
+        JOIN users ON users.id = attendance.user_id
+        LEFT JOIN departments ON users.department_id = departments.id
+        WHERE $sr_where_sql
+        GROUP BY users.id, users.employee_id, users.name, users.surname, users.first_name,
+                 users.position, users.photo, departments.name
+        ORDER BY users.surname, users.first_name
+    ");
+    bind_stmt_params($stmt, $sr_types, $sr_params);
+    $stmt->execute();
+    $sr_result = $stmt->get_result();
+
+    while($row = $sr_result->fetch_assoc()){
+        $row['hours_worked'] = null;
+        if($row['first_in'] && $row['last_out']){
+            $diff = strtotime($row['last_out']) - strtotime($row['first_in']);
+            if($diff > 0){ $row['hours_worked'] = $diff; $sr_total_hours += $diff; }
+        }
+        $sr_present_count++;
+        $sr_rows[] = $row;
+    }
+
+    // ── Export to XLS — must happen before any HTML ──
+    if(isset($_GET['export'])){
+        $dn = $sr_sel_dept > 0 ? ($sr_depts[array_search($sr_sel_dept, array_column($sr_depts,'id'))]['name'] ?? 'All') : 'All Departments';
+        $filename = "Summary_" . $sr_sel_date . ".xls";
+        header("Content-Type: application/vnd.ms-excel");
+        header("Content-Disposition: attachment; filename=\"$filename\"");
+        header("Cache-Control: max-age=0");
+        echo '<html><head><meta charset="UTF-8">
+        <style>
+        body{font-family:Arial,sans-serif;font-size:11pt;}
+        table{border-collapse:collapse;width:100%;}
+        th{background:#1e40af;color:white;padding:8px 12px;border:1px solid #1e40af;font-size:11pt;}
+        td{padding:7px 12px;border:1px solid #cbd5e1;font-size:10pt;}
+        tr:nth-child(even) td{background:#f1f5f9;}
+        .title{font-size:16pt;font-weight:bold;color:#1e293b;margin-bottom:4px;}
+        .sub{font-size:10pt;color:#64748b;margin-bottom:16px;}
+        </style></head><body>';
+        echo '<p class="title">Daily Attendance Summary</p>';
+        echo '<p class="sub">Date: <strong>' . date('F j, Y', strtotime($sr_sel_date)) . '</strong> &nbsp;|&nbsp;'
+           . ' Department: <strong>' . htmlspecialchars($dn) . '</strong> &nbsp;|&nbsp;'
+           . ' Generated: <strong>' . date('F j, Y h:i A') . '</strong> &nbsp;|&nbsp;'
+           . ' By: <strong>' . htmlspecialchars($_SESSION['admin_name'] ?? $_SESSION['admin_user']) . '</strong></p>';
+        echo '<table><thead><tr><th>#</th><th>Employee ID</th><th>Name</th><th>Position</th><th>Department</th><th>First IN</th><th>Last OUT</th><th>Hours Worked</th><th>Total Scans</th></tr></thead><tbody>';
+        foreach($sr_rows as $i => $r){
+            echo '<tr>'
+               . '<td>' . ($i+1) . '</td>'
+               . '<td>' . htmlspecialchars($r['employee_id'] ?? '—') . '</td>'
+               . '<td><strong>' . htmlspecialchars($r['name']) . '</strong></td>'
+               . '<td>' . htmlspecialchars($r['position'] ?? '—') . '</td>'
+               . '<td>' . htmlspecialchars($r['department'] ?? '—') . '</td>'
+               . '<td>' . ($r['first_in'] ? date('h:i:s A', strtotime($r['first_in'])) : '—') . '</td>'
+               . '<td>' . ($r['last_out'] ? date('h:i:s A', strtotime($r['last_out'])) : '—') . '</td>'
+               . '<td>' . fmt_duration($r['hours_worked']) . '</td>'
+               . '<td>' . $r['total_scans'] . '</td>'
+               . '</tr>';
+        }
+        echo '</tbody><tfoot><tr>'
+           . '<td colspan="7" style="text-align:right;font-weight:bold;background:#f8fafc;">Total Present: ' . $sr_present_count . '</td>'
+           . '<td style="font-weight:bold;background:#f8fafc;">' . fmt_duration($sr_total_hours) . '</td>'
+           . '<td style="background:#f8fafc;"></td></tr></tfoot></table></body></html>';
+        exit;
+    }
+}
 ?>
 <?php
 $page_title = "Admin Panel";
@@ -694,13 +793,15 @@ include 'includes/header.php';
         <a href="admin.php?page=attendance"  class="nav-item <?= $page==='attendance'  ? 'active':'' ?>"><span class="nav-icon">&#128203;</span> Attendance Log</a>
         <a href="admin.php?page=departments"  class="nav-item <?= $page==='departments'  ? 'active':'' ?>"><span class="nav-icon">&#127970;</span> Departments</a>
         <a href="admin.php?page=admin_users" class="nav-item <?= $page==='admin_users' ? 'active':'' ?>"><span class="nav-icon">&#128737;</span> Admin Users</a>
-        <a href="summary_report.php"          class="nav-item"><span class="nav-icon">&#128196;</span> Summary Report</a>
-        <a href="change_password.php"         class="nav-item"><span class="nav-icon">&#128274;</span> Change Password</a>
+        <a href="admin.php?page=summary_report" class="nav-item <?= $page==='summary_report' ? 'active':'' ?>"><span class="nav-icon">&#128196;</span> Summary Report</a>
+        
+    </nav>
+
 
         <div class="nav-label" style="margin-top:8px;">System</div>
         <a href="index.php" target="_blank"  class="nav-item"><span class="nav-icon">&#127760;</span> Live Dashboard</a>
-    </nav>
-
+        <a href="display.php" target="_blank" class="nav-item"><span class="nav-icon">&#127760;</span> Display Screen</a>
+        
     <div class="sidebar-footer">
         <div class="admin-info">
             <span>Logged in as</span>
@@ -1163,6 +1264,130 @@ $au_total = $conn->query("SELECT COUNT(*) c FROM admin_users")->fetch_assoc()['c
     </div>
     <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);">
         <?= $au_total ?> admin account(s) registered
+    </div>
+</div>
+<?php elseif($page === 'summary_report'): ?>
+<!-- ══════════════════════════════════════
+     PAGE: SUMMARY REPORT
+══════════════════════════════════════ -->
+<div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+    <div>
+        <h1>&#128196; Daily Summary Report</h1>
+        <p>First Time-In and Last Time-Out per employee — with computed hours worked.</p>
+    </div>
+    <form method="GET" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input type="hidden" name="page" value="summary_report">
+        <input  type="date"   name="date" value="<?= htmlspecialchars($sr_sel_date) ?>" class="ctrl-input">
+        <select name="dept" class="ctrl-input">
+            <option value="0">All Departments</option>
+            <?php foreach($sr_depts as $d): ?>
+            <option value="<?= $d['id'] ?>" <?= $sr_sel_dept == $d['id'] ? 'selected' : '' ?>>
+                <?= htmlspecialchars($d['name']) ?>
+            </option>
+            <?php endforeach; ?>
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">&#128269; Filter</button>
+        <a href="admin.php?page=summary_report&date=<?= $sr_sel_date ?>&dept=<?= $sr_sel_dept ?>&export=1"
+           class="btn btn-success btn-sm">&#128190; Export Excel</a>
+    </form>
+</div>
+
+<?php
+$sr_total_incomplete = count(array_filter($sr_rows, fn($r) => !$r['first_in'] || !$r['last_out']));
+$sr_avg_hours = $sr_present_count > 0 ? $sr_total_hours / $sr_present_count : 0;
+?>
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-icon">&#128100;</div>
+        <div class="stat-val"><?= $sr_present_count ?></div>
+        <div class="stat-lbl">Present Today</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">&#128336;</div>
+        <div class="stat-val" style="font-size:22px;color:#38bdf8;"><?= fmt_duration($sr_total_hours) ?></div>
+        <div class="stat-lbl">Total Hours Logged</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">&#127358;</div>
+        <div class="stat-val" style="font-size:22px;color:#a78bfa;"><?= fmt_duration((int)$sr_avg_hours) ?></div>
+        <div class="stat-lbl">Avg Hours / Employee</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">&#9888;</div>
+        <div class="stat-val" style="color:#eab308;"><?= $sr_total_incomplete ?></div>
+        <div class="stat-lbl">Incomplete Records</div>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-header">
+        <span class="panel-title">
+            &#128203; Summary for <?= date('F j, Y', strtotime($sr_sel_date)) ?>
+            <?php if($sr_sel_dept > 0):
+                $sr_dn = array_filter($sr_depts, fn($d) => $d['id'] == $sr_sel_dept);
+                $sr_dn = reset($sr_dn);
+            ?>
+            &nbsp;&mdash;&nbsp; <?= htmlspecialchars($sr_dn['name'] ?? '') ?>
+            <?php endif; ?>
+        </span>
+        <input type="text" id="srTableSearch" class="ctrl-input" placeholder="&#128269; Search..." style="min-width:200px;">
+    </div>
+    <div class="table-responsive">
+    <table class="tbl" id="srTable">
+        <thead>
+            <tr>
+                <th>#</th><th>Photo</th><th>Employee ID</th><th>Name</th><th>Position</th>
+                <th>Department</th><th>First IN</th><th>Last OUT</th><th>Hours Worked</th>
+                <th>Scans</th><th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+        <?php if(empty($sr_rows)): ?>
+        <tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted);">No attendance records found for this date.</td></tr>
+        <?php else: ?>
+        <?php foreach($sr_rows as $i => $r):
+            $has_in  = !empty($r['first_in']);
+            $has_out = !empty($r['last_out']);
+            if($has_in && $has_out)      $sr_status = 'complete';
+            elseif($has_in && !$has_out) $sr_status = 'partial';
+            else                         $sr_status = 'out_only';
+        ?>
+        <tr>
+            <td style="color:var(--text-muted);"><?= $i+1 ?></td>
+            <td><img src="<?= htmlspecialchars($r['photo'] ?? 'default.png') ?>" class="emp-photo" onerror="this.src='default.png'"></td>
+            <td><?= htmlspecialchars($r['employee_id'] ?? '—') ?></td>
+            <td style="font-weight:bold;color:var(--text-strong);"><?= htmlspecialchars($r['name']) ?></td>
+            <td><?= htmlspecialchars($r['position'] ?? '—') ?></td>
+            <td><?= htmlspecialchars($r['department'] ?? '—') ?></td>
+            <td style="color:#22c55e;font-weight:bold;"><?= fmt_time($r['first_in']) ?></td>
+            <td style="color:#ef4444;font-weight:bold;"><?= fmt_time($r['last_out']) ?></td>
+            <td>
+                <?php if($r['hours_worked']): ?>
+                <span style="background:rgba(56,189,248,0.12);color:#38bdf8;border:1px solid rgba(56,189,248,0.25);padding:3px 10px;border-radius:999px;font-size:12px;font-weight:bold;">
+                    <?= fmt_duration($r['hours_worked']) ?>
+                </span>
+                <?php else: ?>
+                <span style="color:var(--text-muted);">—</span>
+                <?php endif; ?>
+            </td>
+            <td style="text-align:center;"><?= $r['total_scans'] ?></td>
+            <td>
+                <?php if($sr_status === 'complete'): ?>
+                    <span class="badge-in">Complete</span>
+                <?php elseif($sr_status === 'partial'): ?>
+                    <span style="background:rgba(234,179,8,0.15);color:#eab308;border:1px solid rgba(234,179,8,0.25);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:bold;">No OUT</span>
+                <?php else: ?>
+                    <span class="badge-out">No IN</span>
+                <?php endif; ?>
+            </td>
+        </tr>
+        <?php endforeach; ?>
+        <?php endif; ?>
+        </tbody>
+    </table>
+    </div>
+    <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);">
+        Showing <?= $sr_present_count ?> employee(s) &mdash; <?= date('F j, Y', strtotime($sr_sel_date)) ?>
     </div>
 </div>
 <?php endif; ?>
@@ -1730,10 +1955,14 @@ function exportAttendance(){
     window.open('export_attendance.php?' + params.toString(), '_blank');
 }
  
-['attSearch','attStatus','attDate'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el) el.addEventListener('input', renderAtt);
-});
+const attSearch = document.getElementById('attSearch');
+if(attSearch) attSearch.addEventListener('input', renderAtt);
+
+const attStatus = document.getElementById('attStatus');
+if(attStatus) attStatus.addEventListener('change', renderAtt);
+
+const attDate = document.getElementById('attDate');
+if(attDate) attDate.addEventListener('change', renderAtt);
  
 loadAttendance();
 setInterval(loadAttendance, 5000);
@@ -1852,6 +2081,17 @@ document.addEventListener('DOMContentLoaded', function(){
         });
     }
  
+    // Summary report table search
+    const srTableSearch = document.getElementById('srTableSearch');
+    if(srTableSearch){
+        srTableSearch.addEventListener('input', function(){
+            const term = this.value.toLowerCase();
+            document.querySelectorAll('#srTable tbody tr').forEach(row => {
+                row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+            });
+        });
+    }
+
     // Dept table search
     const deptSearch = document.getElementById('deptSearch');
     if(deptSearch){
