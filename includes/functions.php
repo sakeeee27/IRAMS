@@ -258,6 +258,35 @@ function handle_photo_upload($file_input, $upload_dir = 'uploads/', &$error = nu
 }
 
 /**
+ * Bind params helper for summary report queries
+ */
+function bind_stmt_params($stmt, $types, &$params){
+    $refs = [$types];
+    foreach($params as $key => $value){
+        $refs[] = &$params[$key];
+    }
+    return call_user_func_array([$stmt, 'bind_param'], $refs);
+}
+
+/**
+ * Format seconds into Xh Ym string
+ */
+function fmt_duration($secs){
+    if($secs === null || $secs <= 0) return '—';
+    $h = floor($secs / 3600);
+    $m = floor(($secs % 3600) / 60);
+    return "{$h}h {$m}m";
+}
+
+/**
+ * Format a datetime string to h:i:s A
+ */
+function fmt_time($t){
+    if(!$t) return '—';
+    return date('h:i:s A', strtotime($t));
+}
+
+/**
  * Delete a photo file safely
  */
 function delete_photo($photo_path){
