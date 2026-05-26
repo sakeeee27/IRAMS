@@ -35,7 +35,7 @@ if(strtoupper(trim($user['department'])) === 'MCN'){
 $last   = get_last_attendance($conn, $user['id']);
 $status = ($last && $last['status'] === 'IN') ? 'OUT' : 'IN';
 
-insert_attendance($conn, $user['id'], $status);
+insert_attendance($conn, $user['id'], $status, 'entrance');
 
 echo json_encode([
     "status"     => "success",

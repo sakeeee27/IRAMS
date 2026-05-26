@@ -575,7 +575,7 @@ updateClock();
 
 // ── Poll fetch.php every 2 seconds ──
 function loadActivity(){
-    fetch("fetch.php")
+    fetch("fetch.php?terminal=inside")
     .then(res => res.json())
     .then(data => {
 
@@ -595,26 +595,28 @@ function loadActivity(){
             }
         }
 
-        // Update activity feed
-        let html = "";
-        data.feed.forEach(r => {
-            const isIn = r.status === "IN";
-            const time = new Date(r.time.replace(' ','T')).toLocaleTimeString("en-PH", {
-                hour:"2-digit", minute:"2-digit", second:"2-digit"
+        // Update activity feed — only overwrite when records exist
+        if(data.feed && data.feed.length > 0){
+            let html = "";
+            data.feed.forEach(r => {
+                const isIn = r.status === "IN";
+                const time = new Date(r.time.replace(' ','T')).toLocaleTimeString("en-PH", {
+                    hour:"2-digit", minute:"2-digit", second:"2-digit"
+                });
+                const safeName   = escapeHtml(r.name   || '');
+                const safeStatus = escapeHtml(r.status || '');
+                html += `
+                <div class="activity-item">
+                    <div class="activity-dot ${isIn ? 'dot-in' : 'dot-out'}"></div>
+                    <div class="activity-details">
+                        <div class="activity-name">${safeName}</div>
+                        <div class="activity-time">${time}</div>
+                    </div>
+                    <span class="activity-badge ${isIn ? 'badge-in' : 'badge-out'}">${safeStatus}</span>
+                </div>`;
             });
-            const safeName = escapeHtml(r.name || '');
-            const safeStatus = escapeHtml(r.status || '');
-            html += `
-            <div class="activity-item">
-                <div class="activity-dot ${isIn ? 'dot-in' : 'dot-out'}"></div>
-                <div class="activity-details">
-                    <div class="activity-name">${safeName}</div>
-                    <div class="activity-time">${time}</div>
-                </div>
-                <span class="activity-badge ${isIn ? 'badge-in' : 'badge-out'}">${safeStatus}</span>
-            </div>`;
-        });
-        document.getElementById("activityFeed").innerHTML = html;
+            document.getElementById("activityFeed").innerHTML = html;
+        }
     })
     .catch(err => console.error('loadActivity error:', err));
 }

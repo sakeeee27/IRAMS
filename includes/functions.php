@@ -37,9 +37,9 @@ function get_last_attendance($conn, $user_id){
 /**
  * Insert attendance record
  */
-function insert_attendance($conn, $user_id, $status){
-    $stmt = $conn->prepare("INSERT INTO attendance (user_id, status) VALUES (?, ?)");
-    $stmt->bind_param("is", $user_id, $status);
+function insert_attendance($conn, $user_id, $status, $terminal = 'inside'){
+    $stmt = $conn->prepare("INSERT INTO attendance (user_id, status, terminal) VALUES (?, ?, ?)");
+    $stmt->bind_param("iss", $user_id, $status, $terminal);
     return $stmt->execute();
 }
 

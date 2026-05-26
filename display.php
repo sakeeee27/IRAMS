@@ -481,10 +481,16 @@ include 'includes/header.php';
     <!-- RIGHT: INFO PANEL -->
     <div class="activity-panel">
         <div class="activity-title">Entrance Verification</div>
-        <div id="verifyInfo" style="text-align:center;padding:20px 0;">
+        <div id="verifyInfo" style="text-align:center;padding:20px 0;flex-shrink:0;">
             <div style="font-size:48px;margin-bottom:16px;">&#128737;</div>
             <div style="font-size:14px;color:var(--text-muted);">Waiting for card scan...</div>
         </div>
+        <!-- Live entrance activity feed -->
+        <div style="font-size:10px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;color:var(--text-muted);
+                    margin:16px 0 10px;padding-top:14px;border-top:1px solid var(--border);">
+            Recent Entrance Activity
+        </div>
+        <div id="activityFeed" style="overflow-y:auto;min-height:0;flex:1;"></div>
         <div class="panel-bottom">
             <div class="clock-bar"><span id="clock"></span></div>
             <div style="font-size:11px;color:var(--text-muted);text-align:center;padding:4px 0;">
@@ -646,7 +652,7 @@ function flashCard(){
     setTimeout(() => card.classList.remove("card-flash"), 800);
 }
 
-// ── Live clock only — no activity polling needed ──
+// ── Live clock ──
 function updateClock(){
     document.getElementById("clock").innerText = new Date().toLocaleString("en-PH", {
         weekday:"long", year:"numeric", month:"long",
@@ -655,6 +661,36 @@ function updateClock(){
 }
 setInterval(updateClock, 1000);
 updateClock();
+
+// ── Entrance activity feed — polls only entrance terminal scans ──
+function loadEntranceFeed(){
+    fetch("fetch.php?terminal=entrance")
+    .then(res => res.json())
+    .then(data => {
+        if(!data.feed || data.feed.length === 0) return; // keep existing content visible
+        let html = '';
+        data.feed.forEach(r => {
+            const isIn = r.status === 'IN';
+            const time = new Date(r.time.replace(' ','T')).toLocaleTimeString("en-PH", {
+                hour:"2-digit", minute:"2-digit", second:"2-digit"
+            });
+            const safeName   = escapeHtml(r.name   || '');
+            const safeStatus = escapeHtml(r.status || '');
+            html += `<div class="activity-item">
+                <div class="activity-dot ${isIn ? 'dot-in' : 'dot-out'}"></div>
+                <div class="activity-details">
+                    <div class="activity-name">${safeName}</div>
+                    <div class="activity-time">${time}</div>
+                </div>
+                <span class="activity-badge ${isIn ? 'badge-in' : 'badge-out'}">${safeStatus}</span>
+            </div>`;
+        });
+        document.getElementById("activityFeed").innerHTML = html;
+    })
+    .catch(err => console.error('loadEntranceFeed error:', err));
+}
+setInterval(loadEntranceFeed, 2000);
+loadEntranceFeed();
 
 // ── THEME TOGGLE ──
 function applyTheme(theme){

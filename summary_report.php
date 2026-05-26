@@ -28,35 +28,34 @@ $depts = [];
 $dr = $conn->query("SELECT id, name FROM departments ORDER BY name");
 while($d = $dr->fetch_assoc()) $depts[] = $d;
 
-// ── Build WHERE clause ──
-$where  = ["DATE(attendance.time) = ?"];
-$types  = "s";
-$params = [$sel_date];
-if($sel_dept > 0){
-    $where[] = "users.department_id = ?";
-    $types .= "i";
-    $params[] = $sel_dept;
-}
-$where_sql = implode(' AND ', $where);
+// ── Shift window ──
+$shift_start = $sel_date . ' 07:00:00';
+$shift_end   = date('Y-m-d', strtotime($sel_date . ' +1 day')) . ' 03:00:00';
 
-// ── Summary query: first IN and last OUT per employee ──
+// ── Build WHERE clause (dept filter only — time range goes in the JOIN ON clause) ──
+$where_sql = "";
+$types     = "ss";
+$params    = [$shift_start, $shift_end];
+
+if($sel_dept > 0){
+    $where_sql = "WHERE users.department_id = ?";
+    $types    .= "i";
+    $params[]  = $sel_dept;
+}
+
+// ── Summary query: ALL employees with shift attendance via LEFT JOIN ──
 $stmt = $conn->prepare("
-    SELECT
-        users.id,
-        users.employee_id,
-        users.name,
-        users.surname,
-        users.first_name,
-        users.position,
-        users.photo,
-        departments.name AS department,
-        MIN(CASE WHEN attendance.status = 'IN'  THEN attendance.time END) AS first_in,
-        MAX(CASE WHEN attendance.status = 'OUT' THEN attendance.time END) AS last_out,
-        COUNT(attendance.id) AS total_scans
-    FROM attendance
-    JOIN users ON users.id = attendance.user_id
+    SELECT users.id, users.employee_id, users.name, users.surname, users.first_name,
+           users.position, users.photo, departments.name AS department,
+           MIN(CASE WHEN attendance.status='IN'  THEN attendance.time END) AS first_in,
+           MAX(CASE WHEN attendance.status='OUT' THEN attendance.time END) AS last_out,
+           COUNT(attendance.id) AS total_scans
+    FROM users
+    LEFT JOIN attendance ON users.id = attendance.user_id
+        AND attendance.time >= ?
+        AND attendance.time <= ?
     LEFT JOIN departments ON users.department_id = departments.id
-    WHERE $where_sql
+    $where_sql
     GROUP BY users.id, users.employee_id, users.name, users.surname, users.first_name,
              users.position, users.photo, departments.name
     ORDER BY users.surname, users.first_name
@@ -73,17 +72,15 @@ if(!$result){
 $rows = [];
 $total_hours = 0;
 $present_count = 0;
-while($row = $result->fetch_assoc()) {
-    // Compute hours worked
+$absent_count = 0;
+while($row = $result->fetch_assoc()){
     $row['hours_worked'] = null;
-    if($row['first_in'] && $row['last_out']) {
+    if($row['first_in'] && $row['last_out']){
         $diff = strtotime($row['last_out']) - strtotime($row['first_in']);
-        if($diff > 0) {
-            $row['hours_worked'] = $diff;
-            $total_hours += $diff;
-        }
+        if($diff > 0){ $row['hours_worked'] = $diff; $total_hours += $diff; }
     }
-    $present_count++;
+    if($row['total_scans'] > 0) $present_count++;
+    else $absent_count++;
     $rows[] = $row;
 }
 
@@ -293,24 +290,24 @@ include 'includes/header.php';
 
 <!-- STAT CARDS -->
 <?php
-$total_incomplete = count(array_filter($rows, fn($r) => !$r['first_in'] || !$r['last_out']));
+$total_incomplete = count(array_filter($rows, fn($r) => $r['total_scans'] > 0 && (!$r['first_in'] || !$r['last_out'])));
 $avg_hours = $present_count > 0 ? $total_hours / $present_count : 0;
 ?>
 <div class="stat-grid">
     <div class="stat-card">
-        <div class="stat-icon">&#128100;</div>
-        <div class="stat-val"><?= $present_count ?></div>
-        <div class="stat-lbl">Present Today</div>
+        <div class="stat-icon">&#128994;</div>
+        <div class="stat-val" style="color:#22c55e;"><?= $present_count ?></div>
+        <div class="stat-lbl">Present</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">&#128308;</div>
+        <div class="stat-val" style="color:#ef4444;"><?= $absent_count ?></div>
+        <div class="stat-lbl">Absent</div>
     </div>
     <div class="stat-card">
         <div class="stat-icon">&#128336;</div>
         <div class="stat-val" style="font-size:22px;color:#38bdf8;"><?= fmt_duration($total_hours) ?></div>
         <div class="stat-lbl">Total Hours Logged</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon">&#127358;</div>
-        <div class="stat-val" style="font-size:22px;color:#a78bfa;"><?= fmt_duration((int)$avg_hours) ?></div>
-        <div class="stat-lbl">Avg Hours / Employee</div>
     </div>
     <div class="stat-card">
         <div class="stat-icon">&#9888;</div>
@@ -357,7 +354,8 @@ $avg_hours = $present_count > 0 ? $total_hours / $present_count : 0;
         <?php foreach($rows as $i => $r):
             $has_in  = !empty($r['first_in']);
             $has_out = !empty($r['last_out']);
-            if($has_in && $has_out)      $rec_status = 'complete';
+            if($r['total_scans'] == 0)   $rec_status = 'absent';
+            elseif($has_in && $has_out)  $rec_status = 'complete';
             elseif($has_in && !$has_out) $rec_status = 'partial';
             else                         $rec_status = 'out_only';
         ?>
@@ -379,10 +377,12 @@ $avg_hours = $present_count > 0 ? $total_hours / $present_count : 0;
             </td>
             <td style="text-align:center;"><?= $r['total_scans'] ?></td>
             <td>
-                <?php if($rec_status === 'complete'): ?>
+                <?php if($r['total_scans'] == 0): ?>
+                    <span style="background:rgba(100,116,139,0.15);color:#94a3b8;border:1px solid rgba(100,116,139,0.25);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:bold;">Absent</span>
+                <?php elseif($rec_status === 'complete'): ?>
                     <span class="badge-in">Complete</span>
                 <?php elseif($rec_status === 'partial'): ?>
-                    <span class="badge-partial">No OUT</span>
+                    <span style="background:rgba(234,179,8,0.15);color:#eab308;border:1px solid rgba(234,179,8,0.25);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:bold;">No OUT</span>
                 <?php else: ?>
                     <span class="badge-out">No IN</span>
                 <?php endif; ?>
