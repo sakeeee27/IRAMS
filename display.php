@@ -4,7 +4,7 @@ $page_type  = "public";
 $extra_css  = <<<'PAGECSS'
 /* ══ CSS VARIABLES — DARK (default) ══ */
         :root {
-            --bg:                #0f2a1e;
+            --bg:                #5c6983;
             --surface:           #1e293b;
             --surface2:          #0f172a;
             --border:            #334155;
@@ -25,7 +25,7 @@ $extra_css  = <<<'PAGECSS'
 
         /* ══ CSS VARIABLES — LIGHT ══ */
         html.light {
-            --bg:                #e8f5ee;
+            --bg:                #e2e8f0;
             --surface:           #ffffff;
             --surface2:          #f8fafc;
             --border:            #cbd5e1;
@@ -366,8 +366,10 @@ $extra_css  = <<<'PAGECSS'
         #activityFeed {
             overflow-y: auto;
             min-height: 0;
+            scrollbar-width: none;       /* Firefox */
+            -ms-overflow-style: none;    /* IE / Edge */
         }
-
+        #activityFeed::-webkit-scrollbar { display: none; } /* Chrome / Safari */
         /* Clock + logs pinned at bottom */
         .panel-bottom {
             flex-shrink: 0;
@@ -481,21 +483,24 @@ include 'includes/header.php';
     <!-- RIGHT: INFO PANEL -->
     <div class="activity-panel">
         <div class="activity-title">Entrance Verification</div>
+
+        <!-- Current scan verification -->
         <div id="verifyInfo" style="text-align:center;padding:20px 0;flex-shrink:0;">
             <div style="font-size:48px;margin-bottom:16px;">&#128737;</div>
             <div style="font-size:14px;color:var(--text-muted);">Waiting for card scan...</div>
         </div>
-        <!-- Live entrance activity feed -->
-        <div style="font-size:10px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;color:var(--text-muted);
-                    margin:16px 0 10px;padding-top:14px;border-top:1px solid var(--border);">
-            Recent Entrance Activity
+
+        <!-- Recent activity feed below verification -->
+        <div style="font-size:10px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;
+                    color:var(--text-muted);padding:12px 0 8px;border-top:1px solid var(--border);
+                    flex-shrink:0;">
+            Recent Activity
         </div>
-        <div id="activityFeed" style="overflow-y:auto;min-height:0;flex:1;"></div>
+        <div id="activityFeed" style="flex:1;min-height:0;overflow-y:auto;
+             scrollbar-width:none;-ms-overflow-style:none;"></div>
+
         <div class="panel-bottom">
             <div class="clock-bar"><span id="clock"></span></div>
-            <div style="font-size:11px;color:var(--text-muted);text-align:center;padding:4px 0;">
-                &#128683; Display only — attendance recorded at inside terminal
-            </div>
         </div>
     </div>
 
@@ -662,35 +667,38 @@ function updateClock(){
 setInterval(updateClock, 1000);
 updateClock();
 
-// ── Entrance activity feed — polls only entrance terminal scans ──
-function loadEntranceFeed(){
-    fetch("fetch.php?terminal=entrance")
+// ── Poll fetch.php every 2 seconds ──
+function loadActivity(){
+    fetch("fetch.php?dept=non_mcn")
     .then(res => res.json())
     .then(data => {
-        if(!data.feed || data.feed.length === 0) return; // keep existing content visible
-        let html = '';
-        data.feed.forEach(r => {
-            const isIn = r.status === 'IN';
-            const time = new Date(r.time.replace(' ','T')).toLocaleTimeString("en-PH", {
-                hour:"2-digit", minute:"2-digit", second:"2-digit"
+        // Update activity feed — only overwrite when records exist
+        if(data.feed && data.feed.length > 0){
+            let html = '';
+            data.feed.forEach(r => {
+                const isIn = r.status === 'IN';
+                const time = new Date(r.time.replace(' ','T')).toLocaleTimeString('en-PH', {
+                    hour:'2-digit', minute:'2-digit', second:'2-digit'
+                });
+                const safeName   = escapeHtml(r.name   || '');
+                const safeStatus = escapeHtml(r.status || '');
+                html += `
+                <div class="activity-item">
+                    <div class="activity-dot ${isIn ? 'dot-in' : 'dot-out'}"></div>
+                    <div class="activity-details">
+                        <div class="activity-name">${safeName}</div>
+                        <div class="activity-time">${time}</div>
+                    </div>
+                    <span class="activity-badge ${isIn ? 'badge-in' : 'badge-out'}">${safeStatus}</span>
+                </div>`;
             });
-            const safeName   = escapeHtml(r.name   || '');
-            const safeStatus = escapeHtml(r.status || '');
-            html += `<div class="activity-item">
-                <div class="activity-dot ${isIn ? 'dot-in' : 'dot-out'}"></div>
-                <div class="activity-details">
-                    <div class="activity-name">${safeName}</div>
-                    <div class="activity-time">${time}</div>
-                </div>
-                <span class="activity-badge ${isIn ? 'badge-in' : 'badge-out'}">${safeStatus}</span>
-            </div>`;
-        });
-        document.getElementById("activityFeed").innerHTML = html;
+            document.getElementById('activityFeed').innerHTML = html;
+        }
     })
-    .catch(err => console.error('loadEntranceFeed error:', err));
+    .catch(err => console.error('loadActivity error:', err));
 }
-setInterval(loadEntranceFeed, 2000);
-loadEntranceFeed();
+setInterval(loadActivity, 2000);
+loadActivity();
 
 // ── THEME TOGGLE ──
 function applyTheme(theme){

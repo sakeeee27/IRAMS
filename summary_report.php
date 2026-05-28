@@ -29,21 +29,21 @@ $dr = $conn->query("SELECT id, name FROM departments ORDER BY name");
 while($d = $dr->fetch_assoc()) $depts[] = $d;
 
 // ── Shift window ──
-$shift_start = $sel_date . ' 07:00:00';
+$shift_start = $sel_date . ' 04:00:00';
 $shift_end   = date('Y-m-d', strtotime($sel_date . ' +1 day')) . ' 03:00:00';
 
-// ── Build WHERE clause (dept filter only — time range goes in the JOIN ON clause) ──
-$where_sql = "";
-$types     = "ss";
-$params    = [$shift_start, $shift_end];
+// Only department filter goes in WHERE — time conditions are already in the JOIN
+$where  = [];
+$types  = "ss";
+$params = [$shift_start, $shift_end];
 
 if($sel_dept > 0){
-    $where_sql = "WHERE users.department_id = ?";
-    $types    .= "i";
-    $params[]  = $sel_dept;
+    $where[] = "users.department_id = ?";
+    $types .= "i";
+    $params[] = $sel_dept;
 }
+$where_sql = !empty($where) ? "WHERE " . implode(' AND ', $where) : "";
 
-// ── Summary query: ALL employees with shift attendance via LEFT JOIN ──
 $stmt = $conn->prepare("
     SELECT users.id, users.employee_id, users.name, users.surname, users.first_name,
            users.position, users.photo, departments.name AS department,
@@ -291,18 +291,19 @@ include 'includes/header.php';
 <!-- STAT CARDS -->
 <?php
 $total_incomplete = count(array_filter($rows, fn($r) => $r['total_scans'] > 0 && (!$r['first_in'] || !$r['last_out'])));
-$avg_hours = $present_count > 0 ? $total_hours / $present_count : 0;
+$avg_hours        = $present_count > 0 ? $total_hours / $present_count : 0;
+$total_employees  = count($rows);
 ?>
 <div class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-icon">&#128100;</div>
+        <div class="stat-val"><?= $total_employees ?></div>
+        <div class="stat-lbl">Total Employees</div>
+    </div>
     <div class="stat-card">
         <div class="stat-icon">&#128994;</div>
         <div class="stat-val" style="color:#22c55e;"><?= $present_count ?></div>
         <div class="stat-lbl">Present</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon">&#128308;</div>
-        <div class="stat-val" style="color:#ef4444;"><?= $absent_count ?></div>
-        <div class="stat-lbl">Absent</div>
     </div>
     <div class="stat-card">
         <div class="stat-icon">&#128336;</div>
@@ -315,7 +316,6 @@ $avg_hours = $present_count > 0 ? $total_hours / $present_count : 0;
         <div class="stat-lbl">Incomplete Records</div>
     </div>
 </div>
-
 <!-- TABLE -->
 <div class="panel">
     <div class="panel-header">
@@ -394,7 +394,7 @@ $avg_hours = $present_count > 0 ? $total_hours / $present_count : 0;
     </table>
     </div>
     <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);">
-        Showing <?= $present_count ?> employee(s) &mdash; <?= date('F j, Y', strtotime($sel_date)) ?>
+       Showing <?= count($rows) ?> employee(s) &mdash; <?= date('F j, Y', strtotime($sel_date)) ?>
     </div>
 </div>
 

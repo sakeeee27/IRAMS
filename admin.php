@@ -793,7 +793,6 @@ ADMINCSS;
 include 'includes/header.php';
 ?>
 
-<body>
 
 <!-- ══════════════ SIDEBAR ══════════════ -->
 <div class="sidebar">
@@ -814,8 +813,9 @@ include 'includes/header.php';
     </nav>
 
     <div class="nav-label" style="margin-top:8px;">System</div>
-    <a href="index.php"   target="_blank" class="nav-item"><span class="nav-icon">&#127760;</span> Live Dashboard</a>
-    <a href="display.php" target="_blank" class="nav-item"><span class="nav-icon">&#127760;</span> Display Screen</a>
+        <a href="index.php"   target="_blank" class="nav-item">8th Floor</a>
+        <a href="display.php" target="_blank" class="nav-item">Ground Floor</a>
+    </nav>
 
     <div class="sidebar-footer">
         <div class="admin-info">
@@ -1318,9 +1318,22 @@ $sr_total_employees  = count($sr_rows);
     </div>
     <!-- PAGINATION FOOTER -->
     <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-        <span id="srPageInfo">Showing <?= count($sr_rows) ?> employee(s) &mdash; <?= date('F j, Y', strtotime($sr_sel_date)) ?></span>
+    <div style="display:flex;align-items:center;gap:8px;">
+        <span id="srPageInfo"></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <label style="font-size:12px;color:var(--text-muted);">Show</label>
+        <select id="srPerPage" class="ctrl-input" style="padding:4px 8px;font-size:12px;">
+            <option value="10">10</option>
+            <option value="15" selected>15</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="9999">All</option>
+        </select>
+        <label style="font-size:12px;color:var(--text-muted);">per page</label>
         <div id="srPagination" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;"></div>
     </div>
+</div>
 </div>
 <?php endif; ?>
 
@@ -1915,7 +1928,12 @@ document.addEventListener('DOMContentLoaded', function(){
 <script>
 // ── Summary Report Pagination ──
 (function(){
-    const PER_PAGE = 15;
+    const srPerPageEl = document.getElementById('srPerPage');
+    const savedPerPage = localStorage.getItem('sr_per_page');
+    if(srPerPageEl && savedPerPage){
+        srPerPageEl.value = savedPerPage;
+    }
+    let PER_PAGE = parseInt(document.getElementById('srPerPage')?.value || 15);
     let currentPage = 1;
 
     window.getAllSrRows = function(){
@@ -1984,8 +2002,15 @@ document.addEventListener('DOMContentLoaded', function(){
     // Mark all rows as visible initially
     getAllSrRows().forEach(r => r.dataset.searchMatch = '1');
 
-    // Initial render
+    // ── Initialise pagination on page load ──
     srGoToPage(1);
+
+    // Per-page dropdown
+    document.getElementById('srPerPage')?.addEventListener('change', function(){
+        PER_PAGE = parseInt(this.value);
+        localStorage.setItem('sr_per_page', this.value);
+        srGoToPage(1);
+    });
 })();
 </script>
 <?php endif; ?>

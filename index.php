@@ -474,7 +474,7 @@ include 'includes/header.php';
 
     <!-- RIGHT: ACTIVITY FEED -->
     <div class="activity-panel">
-        <div class="activity-title">Recent Activity</div>
+        <div class="activity-title">MCN Recent Activity</div>
         <div id="activityFeed"></div>
         <div class="panel-bottom">
             <div class="clock-bar"><span id="clock"></span></div>
@@ -575,7 +575,7 @@ updateClock();
 
 // ── Poll fetch.php every 2 seconds ──
 function loadActivity(){
-    fetch("fetch.php?terminal=inside")
+    fetch("fetch.php?dept=mcn_only")
     .then(res => res.json())
     .then(data => {
 
