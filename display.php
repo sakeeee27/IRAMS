@@ -443,7 +443,7 @@ include 'includes/header.php';
     <!-- LEFT: ID CARD -->
     <div class="card-panel">
 
-        <div class="system-title">INSPI RFID — ENTRANCE DISPLAY</div>
+        <div class="system-title">IRAMS - ENTRANCE</div>
 
         <div class="id-card" id="idCard">
 

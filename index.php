@@ -434,7 +434,7 @@ include 'includes/header.php';
     <!-- LEFT: ID CARD -->
     <div class="card-panel">
 
-        <div class="system-title">INSPI RFID ATTENDANCE SYSTEM</div>
+        <div class="system-title">IRAMS - 8TH FLOOR</div>
 
         <div class="id-card" id="idCard">
 
@@ -478,7 +478,6 @@ include 'includes/header.php';
         <div id="activityFeed"></div>
         <div class="panel-bottom">
             <div class="clock-bar"><span id="clock"></span></div>
-            <a href="logs.php" class="logs-link">&#128203; View Attendance Logs</a>
         </div>
     </div>
 
