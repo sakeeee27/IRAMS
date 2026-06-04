@@ -218,6 +218,7 @@ $total_att   = $conn->query("SELECT COUNT(*) c FROM attendance")->fetch_assoc()[
 
 $page = $_GET['page'] ?? 'dashboard';
 
+
 // ── SUMMARY REPORT: data + export (must run before HTML) ──
 $sr_rows          = [];
 $sr_total_hours   = 0;
@@ -225,10 +226,35 @@ $sr_present_count = 0;
 $sr_depts         = [];
 $sr_sel_date = $today;
 $sr_sel_dept = 0;
+$sr_employee_options = [];
+$sr_selected_employee_ids = [];
 
 if($page === 'summary_report'){
-    $sr_sel_date = isset($_GET['date']) ? $_GET['date'] : $today;
-    $sr_sel_dept = isset($_GET['dept']) ? (int)$_GET['dept'] : 0;
+    $sr_start_date = $_GET['start_date'] ?? ($_GET['date'] ?? $today);
+    $sr_end_date   = $_GET['end_date'] ?? $sr_start_date;
+    $sr_sel_date   = $sr_start_date;
+
+    $sr_start_dt = DateTime::createFromFormat('Y-m-d', $sr_start_date);
+    if(!$sr_start_dt || $sr_start_dt->format('Y-m-d') !== $sr_start_date){
+        $sr_start_date = $today;
+    }
+
+    $sr_end_dt = DateTime::createFromFormat('Y-m-d', $sr_end_date);
+    if(!$sr_end_dt || $sr_end_dt->format('Y-m-d') !== $sr_end_date){
+        $sr_end_date = $sr_start_date;
+    }
+
+    if(strtotime($sr_end_date) < strtotime($sr_start_date)){
+        $sr_end_date = $sr_start_date;
+    }
+
+    $sr_sel_date = $sr_start_date;
+
+    $sr_selected_employee_ids = $_GET['employees'] ?? [];
+    if(!is_array($sr_selected_employee_ids)){
+    $sr_selected_employee_ids = [$sr_selected_employee_ids];
+    }
+    $sr_selected_employee_ids = array_values(array_unique(array_filter(array_map('intval', $sr_selected_employee_ids))));
 
     $sr_dt = DateTime::createFromFormat('Y-m-d', $sr_sel_date);
     if(!$sr_dt || $sr_dt->format('Y-m-d') !== $sr_sel_date) $sr_sel_date = $today;
@@ -236,55 +262,203 @@ if($page === 'summary_report'){
     $dr = $conn->query("SELECT id, name FROM departments ORDER BY name");
     while($d = $dr->fetch_assoc()) $sr_depts[] = $d;
 
-    $sr_shift_start = $sr_sel_date . ' 04:00:00';
-    $sr_shift_end   = date('Y-m-d', strtotime($sr_sel_date . ' +1 day')) . ' 03:00:00';
+    $er = $conn->query("
+    SELECT users.id, users.employee_id, users.name, departments.name AS department
+    FROM users
+    LEFT JOIN departments ON users.department_id = departments.id
+    ORDER BY users.surname, users.first_name, users.name
+    ");
+    while($e = $er->fetch_assoc()) $sr_employee_options[] = $e;
+
+    $sr_shift_start = $sr_start_date . ' 04:00:00';
+    $sr_shift_end   = date('Y-m-d', strtotime($sr_end_date . ' +1 day')) . ' 03:00:00';
 
     // ── Start FROM users so all employees appear even with no attendance ──
-    $sr_dept_where  = $sr_sel_dept > 0 ? "WHERE users.department_id = ?" : "";
-    $sr_dept_types  = $sr_sel_dept > 0 ? "i" : "";
-    $sr_dept_params = $sr_sel_dept > 0 ? [$sr_sel_dept] : [];
+    $sr_where = [];
+    $sr_filter_types = "";
+    $sr_filter_params = [];
 
-    $stmt = $conn->prepare("
-        SELECT users.id, users.employee_id, users.name, users.surname, users.first_name,
-               users.position, users.photo, departments.name AS department,
-               MIN(CASE WHEN attendance.status='IN'  THEN attendance.time END) AS first_in,
-               MAX(CASE WHEN attendance.status='OUT' THEN attendance.time END) AS last_out,
-               COUNT(attendance.id) AS total_scans
-        FROM users
-        LEFT JOIN attendance ON users.id = attendance.user_id
-            AND attendance.time >= ?
-            AND attendance.time <= ?
-        LEFT JOIN departments ON users.department_id = departments.id
-        $sr_dept_where
-        GROUP BY users.id, users.employee_id, users.name, users.surname, users.first_name,
-                 users.position, users.photo, departments.name
-        ORDER BY users.surname, users.first_name
-    ");
-    $sr_all_types  = "ss" . $sr_dept_types;
-    $sr_all_params = array_merge([$sr_shift_start, $sr_shift_end], $sr_dept_params);
-    bind_stmt_params($stmt, $sr_all_types, $sr_all_params);
-    $stmt->execute();
-    $sr_result = $stmt->get_result();
-
-    while($row = $sr_result->fetch_assoc()){
-        $row['hours_worked'] = null;
-        if($row['first_in'] && $row['last_out']){
-            $diff = strtotime($row['last_out']) - strtotime($row['first_in']);
-            if($diff > 0){ $row['hours_worked'] = $diff; $sr_total_hours += $diff; }
-        }
-        if($row['total_scans'] > 0) $sr_present_count++;
-        $sr_rows[] = $row;
+    if($sr_sel_dept > 0){
+        $sr_where[] = "users.department_id = ?";
+        $sr_filter_types .= "i";
+        $sr_filter_params[] = $sr_sel_dept;
     }
 
-    // ── Export to XLS ──
-    if(isset($_GET['export'])){
-        $dn = $sr_sel_dept > 0 ? ($sr_depts[array_search($sr_sel_dept, array_column($sr_depts,'id'))]['name'] ?? 'All') : 'All Departments';
-        $filename = "Summary_" . $sr_sel_date . ".xls";
-        header("Content-Type: application/vnd.ms-excel");
-        header("Content-Disposition: attachment; filename=\"$filename\"");
-        header("Cache-Control: max-age=0");
-        echo '<html><head><meta charset="UTF-8">
-        <style>
+    if(!empty($sr_selected_employee_ids)){
+        $placeholders = implode(',', array_fill(0, count($sr_selected_employee_ids), '?'));
+        $sr_where[] = "users.id IN ($placeholders)";
+        $sr_filter_types .= str_repeat('i', count($sr_selected_employee_ids));
+
+        foreach($sr_selected_employee_ids as $emp_id){
+            $sr_filter_params[] = $emp_id;
+        }
+    }
+
+    $sr_where_sql = !empty($sr_where) ? "WHERE " . implode(" AND ", $sr_where) : "";
+
+    // Build selected date range
+$sr_dates = [];
+$sr_period_start = new DateTime($sr_start_date);
+$sr_period_end   = new DateTime($sr_end_date);
+$sr_period_end->modify('+1 day');
+
+foreach(new DatePeriod($sr_period_start, new DateInterval('P1D'), $sr_period_end) as $dt){
+    $sr_dates[] = $dt->format('Y-m-d');
+}
+
+// Fetch employees using department/checkbox filters
+$emp_stmt = $conn->prepare("
+    SELECT users.id, users.employee_id, users.name, users.surname, users.first_name,
+           users.position, users.photo, departments.name AS department
+    FROM users
+    LEFT JOIN departments ON users.department_id = departments.id
+    $sr_where_sql
+    ORDER BY users.surname, users.first_name, users.name
+");
+
+if($sr_filter_types !== ''){
+    bind_stmt_params($emp_stmt, $sr_filter_types, $sr_filter_params);
+}
+
+$emp_stmt->execute();
+$emp_result = $emp_stmt->get_result();
+
+$sr_employees = [];
+while($emp = $emp_result->fetch_assoc()){
+    $sr_employees[] = $emp;
+}
+
+// Fetch first IN / last OUT per employee per day
+$sr_attendance_map = [];
+$sr_employee_ids = array_column($sr_employees, 'id');
+
+if(!empty($sr_employee_ids)){
+    $placeholders = implode(',', array_fill(0, count($sr_employee_ids), '?'));
+
+    $att_types = "ss" . str_repeat("i", count($sr_employee_ids));
+    $att_params = [$sr_shift_start, $sr_shift_end];
+
+    foreach($sr_employee_ids as $emp_id){
+        $att_params[] = (int)$emp_id;
+    }
+
+    $att_stmt = $conn->prepare("
+        SELECT
+            attendance.user_id,
+            DATE(
+                CASE
+                    WHEN TIME(attendance.time) < '04:00:00'
+                    THEN DATE_SUB(attendance.time, INTERVAL 1 DAY)
+                    ELSE attendance.time
+                END
+            ) AS report_date,
+            MIN(CASE WHEN attendance.status = 'IN' THEN attendance.time END) AS first_in,
+            MAX(CASE WHEN attendance.status = 'OUT' THEN attendance.time END) AS last_out,
+            COUNT(attendance.id) AS total_scans
+        FROM attendance
+        WHERE attendance.time >= ?
+          AND attendance.time <= ?
+          AND attendance.user_id IN ($placeholders)
+        GROUP BY attendance.user_id, report_date
+    ");
+
+    bind_stmt_params($att_stmt, $att_types, $att_params);
+    $att_stmt->execute();
+    $att_result = $att_stmt->get_result();
+
+    while($att = $att_result->fetch_assoc()){
+        $sr_attendance_map[(int)$att['user_id']][$att['report_date']] = $att;
+    }
+}
+
+        // Build one row per employee per day
+        $sr_rows = [];
+        $sr_total_hours = 0;
+        $sr_present_count = 0;
+
+        foreach($sr_dates as $report_date){
+            foreach($sr_employees as $emp){
+                $att = $sr_attendance_map[(int)$emp['id']][$report_date] ?? [
+                    'first_in' => null,
+                    'last_out' => null,
+                    'total_scans' => 0,
+        ];
+
+        $hours_worked = null;
+
+        if(!empty($att['first_in']) && !empty($att['last_out'])){
+            $diff = strtotime($att['last_out']) - strtotime($att['first_in']);
+            if($diff > 0){
+                $hours_worked = $diff;
+                $sr_total_hours += $diff;
+            }
+        }
+
+        if((int)$att['total_scans'] > 0){
+            $sr_present_count++;
+        }
+
+        $sr_rows[] = array_merge($emp, [
+            'report_date' => $report_date,
+            'first_in' => $att['first_in'],
+            'last_out' => $att['last_out'],
+            'total_scans' => (int)$att['total_scans'],
+            'hours_worked' => $hours_worked,
+        ]);
+    }
+}
+
+// Export detailed IN/OUT scans using old Excel style
+if(isset($_GET['export'])){
+    $dn = $sr_sel_dept > 0
+        ? ($sr_depts[array_search($sr_sel_dept, array_column($sr_depts, 'id'))]['name'] ?? 'All')
+        : 'All Departments';
+
+    $filename = "Attendance_IN_OUT_" . $sr_start_date . "_to_" . $sr_end_date . ".xls";
+
+    $detail_where = [
+        "attendance.time >= ?",
+        "attendance.time <= ?"
+    ];
+
+    foreach($sr_where as $condition){
+        $detail_where[] = $condition;
+    }
+
+    $detail_where_sql = "WHERE " . implode(" AND ", $detail_where);
+    $detail_types  = "ss" . $sr_filter_types;
+    $detail_params = array_merge([$sr_shift_start, $sr_shift_end], $sr_filter_params);
+
+    $detail_stmt = $conn->prepare("
+        SELECT
+            users.id AS user_id,
+            users.name,
+            DATE(
+                CASE
+                    WHEN TIME(attendance.time) < '04:00:00'
+                    THEN DATE_SUB(attendance.time, INTERVAL 1 DAY)
+                    ELSE attendance.time
+                END
+            ) AS attendance_date,
+            attendance.time AS scan_datetime,
+            attendance.status
+        FROM attendance
+        JOIN users ON users.id = attendance.user_id
+        LEFT JOIN departments ON users.department_id = departments.id
+        $detail_where_sql
+        ORDER BY users.surname ASC, users.first_name ASC, users.name ASC, attendance_date ASC, attendance.time ASC
+    ");
+
+    bind_stmt_params($detail_stmt, $detail_types, $detail_params);
+    $detail_stmt->execute();
+    $detail_result = $detail_stmt->get_result();
+
+    header("Content-Type: application/vnd.ms-excel");
+    header("Content-Disposition: attachment; filename=\"$filename\"");
+    header("Cache-Control: max-age=0");
+
+    echo '<html><head><meta charset="UTF-8">
+    <style>
         body{font-family:Arial,sans-serif;font-size:11pt;}
         table{border-collapse:collapse;width:100%;}
         th{background:#1e40af;color:white;padding:8px 12px;border:1px solid #1e40af;font-size:11pt;}
@@ -292,32 +466,53 @@ if($page === 'summary_report'){
         tr:nth-child(even) td{background:#f1f5f9;}
         .title{font-size:16pt;font-weight:bold;color:#1e293b;margin-bottom:4px;}
         .sub{font-size:10pt;color:#64748b;margin-bottom:16px;}
-        </style></head><body>';
-        echo '<p class="title">Daily Attendance Summary</p>';
-        echo '<p class="sub">Date: <strong>' . date('F j, Y', strtotime($sr_sel_date)) . '</strong> &nbsp;|&nbsp;'
-           . ' Department: <strong>' . htmlspecialchars($dn) . '</strong> &nbsp;|&nbsp;'
-           . ' Generated: <strong>' . date('F j, Y h:i A') . '</strong> &nbsp;|&nbsp;'
-           . ' By: <strong>' . htmlspecialchars($_SESSION['admin_name'] ?? $_SESSION['admin_user']) . '</strong></p>';
-        echo '<table><thead><tr><th>#</th><th>Employee ID</th><th>Name</th><th>Position</th><th>Department</th><th>First IN</th><th>Last OUT</th><th>Hours Worked</th><th>Total Scans</th></tr></thead><tbody>';
-        foreach($sr_rows as $i => $r){
-            echo '<tr>'
-               . '<td>' . ($i+1) . '</td>'
-               . '<td>' . htmlspecialchars($r['employee_id'] ?? '—') . '</td>'
-               . '<td><strong>' . htmlspecialchars($r['name']) . '</strong></td>'
-               . '<td>' . htmlspecialchars($r['position'] ?? '—') . '</td>'
-               . '<td>' . htmlspecialchars($r['department'] ?? '—') . '</td>'
-               . '<td>' . ($r['first_in'] ? date('h:i:s A', strtotime($r['first_in'])) : '—') . '</td>'
-               . '<td>' . ($r['last_out'] ? date('h:i:s A', strtotime($r['last_out'])) : '—') . '</td>'
-               . '<td>' . fmt_duration($r['hours_worked']) . '</td>'
-               . '<td>' . $r['total_scans'] . '</td>'
-               . '</tr>';
+        .in{color:#16a34a;font-weight:bold;}
+        .out{color:#dc2626;font-weight:bold;}
+    </style></head><body>';
+
+    echo '<p class="title">Attendance IN/OUT Report</p>';
+    echo '<p class="sub">Date Range: <strong>' . date('F j, Y', strtotime($sr_start_date)) . ' to ' . date('F j, Y', strtotime($sr_end_date)) . '</strong> &nbsp;|&nbsp;'
+       . 'Department: <strong>' . htmlspecialchars($dn) . '</strong> &nbsp;|&nbsp;'
+       . 'Generated: <strong>' . date('F j, Y h:i A') . '</strong> &nbsp;|&nbsp;'
+       . 'By: <strong>' . htmlspecialchars($_SESSION['admin_name'] ?? $_SESSION['admin_user']) . '</strong></p>';
+
+    echo '<table><thead><tr>
+        <th>Employee</th>
+        <th>Date</th>
+        <th>Time</th>
+        <th>Status</th>
+    </tr></thead><tbody>';
+
+    $last_user_id = null;
+    $has_rows = false;
+
+    while($r = $detail_result->fetch_assoc()){
+        $has_rows = true;
+
+        if($last_user_id !== null && $last_user_id != $r['user_id']){
+            echo '<tr><td colspan="4">&nbsp;</td></tr>';
         }
-        echo '</tbody><tfoot><tr>'
-           . '<td colspan="7" style="text-align:right;font-weight:bold;background:#f8fafc;">Total Present: ' . $sr_present_count . '</td>'
-           . '<td style="font-weight:bold;background:#f8fafc;">' . fmt_duration($sr_total_hours) . '</td>'
-           . '<td style="background:#f8fafc;"></td></tr></tfoot></table></body></html>';
-        exit;
+
+        $last_user_id = $r['user_id'];
+
+        $status = strtoupper($r['status']);
+        $status_class = $status === 'IN' ? 'in' : 'out';
+
+        echo '<tr>'
+           . '<td>' . htmlspecialchars($r['name']) . '</td>'
+           . '<td>' . htmlspecialchars(date('M j', strtotime($r['attendance_date']))) . '</td>'
+           . '<td>' . htmlspecialchars(date('h:i A', strtotime($r['scan_datetime']))) . '</td>'
+           . '<td class="' . $status_class . '">' . htmlspecialchars($status) . '</td>'
+           . '</tr>';
     }
+
+    if(!$has_rows){
+        echo '<tr><td colspan="4" style="text-align:center;">No attendance records found.</td></tr>';
+    }
+
+    echo '</tbody></table></body></html>';
+    exit;
+}
 }
 ?>
 <?php
@@ -1201,21 +1396,51 @@ $emp_total  = $conn->query("SELECT COUNT(*) c FROM users")->fetch_assoc()['c'];
         <h1>&#128196; Daily Summary Report</h1>
         <p>All employees for the selected date — with First IN, Last OUT, and hours worked.</p>
     </div>
-    <form method="GET" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-        <input type="hidden" name="page" value="summary_report">
-        <input type="date" name="date" value="<?= htmlspecialchars($sr_sel_date) ?>" class="ctrl-input">
-        <select name="dept" class="ctrl-input">
-            <option value="0">All Departments</option>
-            <?php foreach($sr_depts as $d): ?>
-            <option value="<?= $d['id'] ?>" <?= $sr_sel_dept == $d['id'] ? 'selected' : '' ?>>
-                <?= htmlspecialchars($d['name']) ?>
-            </option>
+    <form method="GET" action="admin.php" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+    <input type="hidden" name="page" value="summary_report">
+
+    <input type="date" name="start_date" value="<?= htmlspecialchars($sr_start_date ?? $sr_sel_date) ?>" class="ctrl-input">
+    <input type="date" name="end_date" value="<?= htmlspecialchars($sr_end_date ?? $sr_sel_date) ?>" class="ctrl-input">
+
+    <select name="dept" class="ctrl-input">
+        <option value="0">All Departments</option>
+        <?php foreach($sr_depts as $d): ?>
+        <option value="<?= $d['id'] ?>" <?= $sr_sel_dept == $d['id'] ? 'selected' : '' ?>>
+            <?= htmlspecialchars($d['name']) ?>
+        </option>
+        <?php endforeach; ?>
+    </select>
+
+    <div style="position:relative;">
+        <button type="button" class="ctrl-input" onclick="toggleEmployeeDropdown()" style="min-width:230px;text-align:left;">
+            Employees: <?= empty($sr_selected_employee_ids) ? 'All' : count($sr_selected_employee_ids) . ' selected' ?>
+        </button>
+
+        <div id="employeeDropdown" style="display:none;position:absolute;right:0;top:42px;width:340px;max-height:360px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;z-index:9999;box-shadow:var(--shadow);">
+            <input type="text" id="employeeSearchBox" class="ctrl-input" placeholder="Search employee..." style="width:100%;margin-bottom:8px;">
+
+            <button type="button" class="btn btn-secondary btn-sm" onclick="clearEmployeeChecks()" style="width:100%;margin-bottom:8px;">
+                Clear Selection / All Employees
+            </button>
+
+            <?php foreach($sr_employee_options as $emp): ?>
+            <label class="employee-check-row" style="display:flex;gap:8px;align-items:flex-start;padding:6px 4px;cursor:pointer;font-size:13px;color:var(--text);">
+                <input type="checkbox"
+                       name="employees[]"
+                       value="<?= $emp['id'] ?>"
+                       <?= in_array((int)$emp['id'], $sr_selected_employee_ids, true) ? 'checked' : '' ?>>
+                <span>
+                    <?= htmlspecialchars(($emp['employee_id'] ? $emp['employee_id'] . ' - ' : '') . $emp['name']) ?>
+                    <small style="display:block;color:var(--text-muted);"><?= htmlspecialchars($emp['department'] ?? 'No Department') ?></small>
+                </span>
+            </label>
             <?php endforeach; ?>
-        </select>
-        <button type="submit" class="btn btn-primary btn-sm">&#128269; Filter</button>
-        <a href="admin.php?page=summary_report&date=<?= $sr_sel_date ?>&dept=<?= $sr_sel_dept ?>&export=1"
-           class="btn btn-success btn-sm">&#128190; Export Excel</a>
-    </form>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+    <button type="submit" name="export" value="1" class="btn btn-success btn-sm">Export Excel</button>
+</form>
 </div>
 
 <?php
@@ -1263,14 +1488,14 @@ $sr_total_employees  = count($sr_rows);
     <table class="tbl" id="srTable">
         <thead>
             <tr>
-                <th>#</th><th>Photo</th><th>Employee ID</th><th>Name</th><th>Position</th>
+                <th>#</th><th>Date</th><th>Photo</th><th>Employee ID</th>
                 <th>Department</th><th>First IN</th><th>Last OUT</th><th>Hours Worked</th>
                 <th>Scans</th><th>Status</th>
             </tr>
         </thead>
         <tbody>
         <?php if(empty($sr_rows)): ?>
-        <tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted);">No employees found.</td></tr>
+        <tr><td colspan="12" style="text-align:center;padding:40px;color:var(--text-muted);">No employees found.</td></tr>
         <?php else: ?>
         <?php foreach($sr_rows as $i => $r):
             $has_in  = !empty($r['first_in']);
@@ -1282,6 +1507,7 @@ $sr_total_employees  = count($sr_rows);
         ?>
         <tr>
             <td style="color:var(--text-muted);"><?= $i+1 ?></td>
+            <td><?= htmlspecialchars(date('M j, Y', strtotime($r['report_date']))) ?></td>
             <td><img src="<?= htmlspecialchars($r['photo'] ?? 'default.png') ?>" class="emp-photo" onerror="this.src='default.png'"></td>
             <td><?= htmlspecialchars($r['employee_id'] ?? '—') ?></td>
             <td style="font-weight:bold;color:var(--text-strong);"><?= htmlspecialchars($r['name']) ?></td>
@@ -2013,6 +2239,33 @@ document.addEventListener('DOMContentLoaded', function(){
     });
 })();
 </script>
+    <script>
+    function toggleEmployeeDropdown(){
+        const box = document.getElementById('employeeDropdown');
+        box.style.display = box.style.display === 'none' || box.style.display === '' ? 'block' : 'none';
+    }
+
+    function clearEmployeeChecks(){
+        document.querySelectorAll('#employeeDropdown input[name="employees[]"]').forEach(cb => cb.checked = false);
+    }
+
+    document.addEventListener('click', function(e){
+        const box = document.getElementById('employeeDropdown');
+        if(!box) return;
+
+        const picker = box.parentElement;
+        if(!picker.contains(e.target)){
+            box.style.display = 'none';
+        }
+    });
+
+    document.getElementById('employeeSearchBox')?.addEventListener('input', function(){
+        const term = this.value.toLowerCase();
+        document.querySelectorAll('.employee-check-row').forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+        });
+    });
+    </script>
 <?php endif; ?>
 
 <?php include 'includes/footer.php'; ?>
