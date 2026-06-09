@@ -497,27 +497,75 @@ function escapeHtml(value){
     }[ch]));
 }
 
-input.addEventListener("input", function(){
-    if(this.value.length >= 10){
-        sendRFID(this.value);
-        this.value = "";
+// ── Robust RFID capture via keydown on document ──
+let rfidBuffer   = "";
+let rfidTimer    = null;
+let isSending    = false;
+
+const RFID_MIN_LEN = 8;
+const RFID_IDLE_MS = 80;
+
+function flushRFID(){
+    clearTimeout(rfidTimer);
+    rfidTimer = null;
+
+    const uid = rfidBuffer.trim().replace(/[\r\n]/g, "");
+    rfidBuffer = "";
+
+    if(uid.length < RFID_MIN_LEN) return;
+    if(isSending) return;
+
+    sendRFID(uid);
+}
+
+document.addEventListener("keydown", function(e){
+    if(e.ctrlKey || e.altKey || e.metaKey) return;
+    if(e.key.length > 1 && e.key !== "Enter") return;
+
+    if(e.key === "Enter"){
+        if(rfidBuffer.length >= RFID_MIN_LEN){
+            flushRFID();
+        } else {
+            rfidBuffer = "";
+            clearTimeout(rfidTimer);
+        }
+        return;
     }
+
+    rfidBuffer += e.key;
+    clearTimeout(rfidTimer);
+    rfidTimer = setTimeout(flushRFID, RFID_IDLE_MS);
 });
-setInterval(() => input.focus(), 500);
+
+input.setAttribute("readonly", "readonly");
+setInterval(() => {
+    if(document.activeElement === document.body || document.activeElement === null){
+        input.focus();
+    }
+}, 300);
 
 function sendRFID(uid){
+    isSending = true;
     fetch("process.php", {
         method: "POST",
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
         body: "rfid_uid=" + encodeURIComponent(uid)
     })
-    .then(res => res.json())
+    .then(res => {
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+    })
     .then(data => {
+        isSending = false;
         if(data.status === "success"){
             updateCard(data.name, data.position, data.department, data.log, data.photo, data.logo);
         } else {
             alert(data.message);
         }
+    })
+    .catch(err => {
+        isSending = false;
+        console.warn("RFID fetch error:", err);
     });
 }
 

@@ -520,36 +520,94 @@ function escapeHtml(value){
     }[ch]));
 }
 
-input.addEventListener("input", function(){
-    if(this.value.length >= 10){
-        sendRFID(this.value);
-        this.value = "";
+// ── Robust RFID capture via keydown on document ──
+// Collects characters from the scanner (which acts like a keyboard),
+// then fires when Enter is received OR after a short idle timeout.
+// This avoids all focus-loss and stale-buffer problems.
+
+let rfidBuffer   = "";
+let rfidTimer    = null;
+let isSending    = false;   // debounce: ignore extra scans while a request is in-flight
+
+const RFID_MIN_LEN     = 8;    // minimum valid UID length
+const RFID_IDLE_MS     = 80;   // flush buffer after 80 ms of silence (scanner is fast, humans are slow)
+
+function flushRFID(){
+    clearTimeout(rfidTimer);
+    rfidTimer = null;
+
+    const uid = rfidBuffer.trim().replace(/[\r\n]/g, "");
+    rfidBuffer = "";
+
+    if(uid.length < RFID_MIN_LEN) return;   // too short — discard noise / accidental keystrokes
+    if(isSending) return;                    // previous scan still processing
+
+    sendRFID(uid);
+}
+
+document.addEventListener("keydown", function(e){
+    // Ignore modifier-only keys and function keys
+    if(e.ctrlKey || e.altKey || e.metaKey) return;
+    if(e.key.length > 1 && e.key !== "Enter") return;  // F-keys, Arrow, etc.
+
+    if(e.key === "Enter"){
+        // Scanner finished sending — flush immediately
+        if(rfidBuffer.length >= RFID_MIN_LEN){
+            flushRFID();
+        } else {
+            rfidBuffer = "";   // discard incomplete junk
+            clearTimeout(rfidTimer);
+        }
+        return;
     }
+
+    // Accumulate character
+    rfidBuffer += e.key;
+
+    // Reset the idle timer on every new character
+    clearTimeout(rfidTimer);
+    rfidTimer = setTimeout(flushRFID, RFID_IDLE_MS);
 });
-setInterval(() => input.focus(), 500);
+
+// Keep the hidden input focused as a fallback (some scanners target the focused element)
+input.setAttribute("readonly", "readonly");  // prevent mobile keyboard pop-up
+setInterval(() => {
+    // Only re-focus when nothing else is intentionally focused
+    if(document.activeElement === document.body || document.activeElement === null){
+        input.focus();
+    }
+}, 300);
 
 // ── Send to process_display.php — handles MCN (display) and non-MCN (record) ──
 function sendRFID(uid){
+    isSending = true;
+
     fetch("process_display.php", {
         method: "POST",
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
         body: "rfid_uid=" + encodeURIComponent(uid)
     })
-    .then(res => res.json())
+    .then(res => {
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+    })
     .then(data => {
+        isSending = false;
         if(data.status === "success"){
             if(data.mode === "display_only"){
-                // MCN employee — show info only, no attendance written
                 showDisplayOnly(data.name, data.position, data.department, data.photo, data.logo);
             } else {
-                // Non-MCN employee — attendance recorded, show IN/OUT
                 showRecorded(data.name, data.position, data.department, data.log, data.photo, data.logo);
             }
         } else {
             showUnknown();
         }
     })
-    .catch(() => showUnknown());
+    .catch(err => {
+        isSending = false;
+        console.warn("RFID fetch error:", err);
+        // Don't call showUnknown() on a network error — silently retry next scan
+    });
 }
 
 let clearCardTimer = null;
